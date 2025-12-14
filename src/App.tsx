@@ -118,6 +118,8 @@ export default function App() {
     }
   };
   
+  const pageContent = renderPage();
+  
   return (
     <div className="min-h-screen bg-[#F8F9FA]">
       <Navigation 
@@ -127,8 +129,10 @@ export default function App() {
         currentUser={currentUser}
         onLogout={handleLogout}
       />
-      <main>
-        {renderPage()}
+      <main className="page-shell overflow-hidden">
+        <div key={currentPage} className="page-transition">
+          {pageContent}
+        </div>
       </main>
       
       {/* Quick Access Floating Button */}

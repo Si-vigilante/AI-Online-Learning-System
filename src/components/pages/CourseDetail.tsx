@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Card } from '../design-system/Card';
 import { Button } from '../design-system/Button';
 import { Tabs } from '../design-system/Tabs';
-import { Play, BookOpen, FileText, Clock, Users, Star, CheckCircle, Lock } from 'lucide-react';
+import { Play, BookOpen, FileText, Clock, Users, Star, CheckCircle, Lock, GitBranch } from 'lucide-react';
 
 interface CourseDetailProps {
   onNavigate: (page: string) => void;
@@ -62,6 +62,19 @@ export function CourseDetail({ onNavigate }: CourseDetailProps) {
     { id: 2, title: '神经网络基础测验', questions: 15, duration: '20分钟' }
   ];
   
+  const learningPath = [
+    { id: 1, title: '基础认知', progress: 80, nodes: ['概念', '价值', '案例'] },
+    { id: 2, title: '神经元与激活', progress: 45, nodes: ['感知机', '激活函数', '梯度'] },
+    { id: 3, title: '训练与评估', progress: 25, nodes: ['反向传播', '损失函数', '验证集'] },
+    { id: 4, title: '框架实战', progress: 10, nodes: ['TensorFlow', 'PyTorch', '部署'] }
+  ];
+
+  const knowledgeSplits = [
+    { chapter: '第一章：深度学习简介', points: ['什么是深度学习', '应用场景', '神经网络基础概念'] },
+    { chapter: '第二章：神经网络原理', points: ['感知机模型', '激活函数详解', '反向传播算法'] },
+    { chapter: '第三章：深度学习框架', points: ['TensorFlow 入门', 'PyTorch 基础', '模型构建实践'] }
+  ];
+
   const tabs = [
     { key: 'curriculum', label: '课程内容', icon: <BookOpen className="w-4 h-4" /> },
     { key: 'intro', label: '课程介绍', icon: <FileText className="w-4 h-4" /> }
@@ -137,9 +150,78 @@ export function CourseDetail({ onNavigate }: CourseDetailProps) {
       </div>
       
       {/* Main Content */}
-      <div className="container-custom py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+    <div className="container-custom py-8">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2">
+            <Card className="p-6 mb-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <GitBranch className="w-5 h-5 text-[#4C6EF5]" />
+                  <h4 className="mb-0">课程结构管理</h4>
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="secondary" size="sm">+ 新增章节</Button>
+                  <Button variant="secondary" size="sm">+ 添加知识点</Button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between text-sm text-[#ADB5BD]">
+                    <span>教师拆分</span>
+                    <span>章节/知识点可复用</span>
+                  </div>
+                  {knowledgeSplits.map((item) => (
+                    <div key={item.chapter} className="p-4 border-2 border-[#E9ECEF] rounded-lg hover:border-[#4C6EF5] transition-all">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="font-medium">{item.chapter}</span>
+                        <span className="text-xs text-[#4C6EF5] bg-[#EDF2FF] px-2 py-1 rounded-full">{item.points.length} 个知识点</span>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {item.points.map((point, idx) => (
+                          <span key={idx} className="text-xs px-3 py-1 rounded-full bg-[#F8F9FA] border border-[#E9ECEF]">
+                            {point}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between text-sm text-[#ADB5BD]">
+                    <span>学生学习路径图</span>
+                    <span>进度条实时同步</span>
+                  </div>
+                  {learningPath.map((stage, index) => (
+                    <div key={stage.id} className="relative p-4 border-2 border-[#E9ECEF] rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#4C6EF5] to-[#845EF7] text-white flex items-center justify-center text-sm">
+                            {index + 1}
+                          </div>
+                          <div>
+                            <p className="font-medium">{stage.title}</p>
+                            <p className="text-xs text-[#ADB5BD]">知识点：{stage.nodes.join(' / ')}</p>
+                          </div>
+                        </div>
+                        <span className="text-sm text-[#4C6EF5]">{stage.progress}%</span>
+                      </div>
+                      <div className="w-full h-2 bg-[#F1F3F5] rounded-full mt-3 overflow-hidden">
+                        <div 
+                          className="h-full bg-gradient-to-r from-[#4C6EF5] to-[#845EF7] transition-all duration-300"
+                          style={{ width: `${stage.progress}%` }}
+                        />
+                      </div>
+                      {index < learningPath.length - 1 && (
+                        <div className="absolute -right-3 top-8 w-6 h-0.5 bg-gradient-to-r from-[#4C6EF5] to-[#845EF7]" />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </Card>
+
             <Card className="p-6">
               <Tabs tabs={tabs} activeTab={activeTab} onChange={setActiveTab} />
               

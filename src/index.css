@@ -2546,3 +2546,23 @@ small {
   inherits: false;
   initial-value: 1;
 }
+
+/* Page transition for smoother page switches */
+.page-shell {
+  position: relative;
+}
+
+.page-transition {
+  animation: pageSoftFade 0.45s ease-out;
+}
+
+@keyframes pageSoftFade {
+  from {
+    opacity: 0.2;
+    transform: translateY(4px) scale(0.995);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
