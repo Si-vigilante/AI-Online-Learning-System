@@ -89,9 +89,17 @@ export function Navigation({ currentPage, onNavigate, userRole = 'student', curr
                 className="flex items-center gap-2 px-4 py-2 rounded-lg hover:bg-[#F8F9FA] transition-colors"
                 onClick={() => onNavigate('profile')}
               >
-                <div className="w-8 h-8 bg-gradient-to-br from-[#4C6EF5] to-[#845EF7] rounded-full flex items-center justify-center text-white text-sm">
-                  {currentUser?.name?.[0] || 'U'}
-                </div>
+                {currentUser?.avatar ? (
+                  <img
+                    src={currentUser.avatar}
+                    alt="avatar"
+                    className="w-8 h-8 rounded-full object-cover border border-[#E9ECEF]"
+                  />
+                ) : (
+                  <div className="w-8 h-8 bg-gradient-to-br from-[#4C6EF5] to-[#845EF7] rounded-full flex items-center justify-center text-white text-sm">
+                    {currentUser?.name?.[0] || 'U'}
+                  </div>
+                )}
                 <span className="text-sm">{currentUser?.name || '用户'}</span>
               </button>
               

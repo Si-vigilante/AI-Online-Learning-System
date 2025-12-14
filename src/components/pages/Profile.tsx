@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Card } from '../design-system/Card';
 import { Button } from '../design-system/Button';
 import { Input } from '../design-system/Input';
-import { User, Mail, Phone, Calendar, Award, BookOpen, Edit2 } from 'lucide-react';
+import { User, Mail, Phone, Calendar, Award, BookOpen, Edit2, Camera } from 'lucide-react';
 import { UserProfile, rolePermissions, updateUserProfile } from '../../services/auth';
 import { Toggle } from '../design-system/Toggle';
 
@@ -27,6 +27,9 @@ export function Profile({ onNavigate, currentUser, onProfileUpdate }: ProfilePro
     phone: currentUser?.phone || '',
     faceBound: Boolean(currentUser?.faceBound)
   });
+  const [avatarPreview, setAvatarPreview] = useState<string>(currentUser?.avatar || '');
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     setProfile(currentUser);
@@ -117,7 +120,8 @@ export function Profile({ onNavigate, currentUser, onProfileUpdate }: ProfilePro
         faceBound: form.faceBound,
         major: major.trim() || undefined,
         grade: grade.trim() || undefined,
-        interests: interests
+        interests: interests,
+        avatar: avatarPreview || profile.avatar
       });
       setProfile(updated);
       onProfileUpdate(updated);
@@ -129,6 +133,23 @@ export function Profile({ onNavigate, currentUser, onProfileUpdate }: ProfilePro
       setMessage('');
     }
   };
+
+  const handleAvatarClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setAvatarFile(file);
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setAvatarPreview(reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
   
   return (
     <div className="min-h-screen bg-[#F8F9FA]">
@@ -139,12 +160,32 @@ export function Profile({ onNavigate, currentUser, onProfileUpdate }: ProfilePro
             {/* Profile Card */}
             <Card className="p-6 text-center">
               <div className="relative inline-block mb-4">
-                <div className="w-24 h-24 bg-gradient-to-br from-[#4C6EF5] to-[#845EF7] rounded-full flex items-center justify-center text-white text-3xl mx-auto">
-                  {profile.name[0]}
-                </div>
-                <button className="absolute bottom-0 right-0 w-8 h-8 bg-white rounded-full shadow-md flex items-center justify-center hover:bg-[#F8F9FA] transition-colors">
-                  <Edit2 className="w-4 h-4 text-[#4C6EF5]" />
+                {avatarPreview ? (
+                  <img
+                    src={avatarPreview}
+                    alt="avatar"
+                    className="w-24 h-24 rounded-full object-cover mx-auto border-2 border-white shadow"
+                  />
+                ) : (
+                  <div className="w-24 h-24 bg-gradient-to-br from-[#4C6EF5] to-[#845EF7] rounded-full flex items-center justify-center text-white text-3xl mx-auto">
+                    {profile.name[0]}
+                  </div>
+                )}
+                <button
+                  className="absolute bottom-0 right-0 w-9 h-9 bg-white rounded-full shadow-md flex items-center justify-center hover:bg-[#F8F9FA] transition-colors border border-[#E9ECEF]"
+                  onClick={handleAvatarClick}
+                  disabled={!isEditing}
+                  title={isEditing ? '上传头像' : '点击编辑后更换头像'}
+                >
+                  <Camera className="w-4 h-4 text-[#4C6EF5]" />
                 </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleAvatarChange}
+                />
               </div>
               
               <h3 className="mb-1">{profile.name}</h3>

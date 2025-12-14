@@ -1,5 +1,6 @@
 import React from 'react';
 import { Card } from '../design-system/Card';
+import { Button } from '../design-system/Button';
 import { Clock, Award, BookOpen, TrendingUp, Target, Zap, Users, Brain, Activity, Shield, BarChart2 } from 'lucide-react';
 import { UserProfile } from '../../services/auth';
 
