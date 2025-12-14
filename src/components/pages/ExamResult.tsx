@@ -1,7 +1,7 @@
 import React from 'react';
 import { Card } from '../design-system/Card';
 import { Button } from '../design-system/Button';
-import { Award, CheckCircle, XCircle, Lightbulb, BookOpen, RotateCcw } from 'lucide-react';
+import { Award, CheckCircle, XCircle, Lightbulb, BookOpen, RotateCcw, PenLine, ShieldCheck } from 'lucide-react';
 
 interface ExamResultProps {
   onNavigate: (page: string) => void;
@@ -49,6 +49,10 @@ export function ExamResult({ onNavigate }: ExamResultProps) {
   const weakTopics = [
     { topic: '深度学习框架', score: 60 },
     { topic: '卷积神经网络', score: 70 }
+  ];
+
+  const subjectiveScores = [
+    { id: 4, question: '请简述反向传播算法的基本原理。', aiScore: 14, fullScore: 20, rubric: '要点覆盖度 60%，逻辑性 70%，关键公式描述清晰度 65%', status: '待复核' }
   ];
   
   const recommendations = [
@@ -240,6 +244,42 @@ export function ExamResult({ onNavigate }: ExamResultProps) {
                   </p>
                 </div>
               </div>
+            </Card>
+
+            <Card className="p-6">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <PenLine className="w-4 h-4 text-[#4C6EF5]" />
+                  <h5 className="mb-0">主观题智能批改</h5>
+                </div>
+                <Button size="sm" variant="secondary">教师复核</Button>
+              </div>
+              <div className="space-y-3 text-sm">
+                {subjectiveScores.map((item) => (
+                  <div key={item.id} className="p-3 bg-[#F8F9FA] rounded-lg border border-[#E9ECEF]">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-medium">题目 {item.id}</span>
+                      <span className="text-xs text-[#845EF7]">{item.status}</span>
+                    </div>
+                    <p className="text-sm mb-2">{item.question}</p>
+                    <div className="flex items-center gap-3 text-xs text-[#ADB5BD]">
+                      <span>AI 评分：{item.aiScore} / {item.fullScore}</span>
+                      <span>{item.rubric}</span>
+                    </div>
+                  </div>
+                ))}
+                {!subjectiveScores.length && <p className="text-xs text-[#ADB5BD]">暂无主观题</p>}
+              </div>
+            </Card>
+
+            <Card className="p-6">
+              <div className="flex items-center gap-2 mb-3">
+                <ShieldCheck className="w-4 h-4 text-[#4C6EF5]" />
+                <h5 className="mb-0">评分说明</h5>
+              </div>
+              <p className="text-sm text-[#495057]">
+                客观题已即时评分并附解析；主观题通过语义相似度匹配评分标准，教师可再次复核调整，最终成绩以复核结果为准。
+              </p>
             </Card>
           </div>
         </div>

@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Card } from '../design-system/Card';
 import { Button } from '../design-system/Button';
 import { QuestionCard } from '../design-system/QuestionCard';
-import { Clock, ChevronLeft, ChevronRight, Flag } from 'lucide-react';
+import { Clock, ChevronLeft, ChevronRight, Flag, EyeOff, Camera } from 'lucide-react';
 
 interface ExamAttemptProps {
   onNavigate: (page: string) => void;
@@ -13,6 +13,9 @@ export function ExamAttempt({ onNavigate }: ExamAttemptProps) {
   const [answers, setAnswers] = useState<Record<number, string[]>>({});
   const [textAnswers, setTextAnswers] = useState<Record<number, string>>({});
   const [timeRemaining, setTimeRemaining] = useState(1200); // 20 minutes in seconds
+  const [warnings, setWarnings] = useState(0);
+  const [cameraOn, setCameraOn] = useState(false);
+  const [proctorLog, setProctorLog] = useState<string[]>([]);
   
   const questions = [
     {
@@ -78,11 +81,22 @@ export function ExamAttempt({ onNavigate }: ExamAttemptProps) {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
   
-  React.useEffect(() => {
+  useEffect(() => {
     const timer = setInterval(() => {
       setTimeRemaining(prev => Math.max(0, prev - 1));
     }, 1000);
     return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        setWarnings((w) => w + 1);
+        setProctorLog((log) => [...log, `检测到切屏 · ${new Date().toLocaleTimeString()}`]);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, []);
   
   const currentQ = questions[currentQuestion];
@@ -181,7 +195,7 @@ export function ExamAttempt({ onNavigate }: ExamAttemptProps) {
           </div>
           
           {/* Question Navigation Sidebar */}
-          <div>
+          <div className="space-y-4">
             <Card className="p-6 sticky top-24">
               <h5 className="mb-4">答题卡</h5>
               <div className="grid grid-cols-5 gap-2 mb-6">
@@ -229,6 +243,32 @@ export function ExamAttempt({ onNavigate }: ExamAttemptProps) {
                   </div>
                   <p className="text-sm text-[#ADB5BD]">已完成题目</p>
                 </div>
+              </div>
+            </Card>
+
+            <Card className="p-6 sticky top-[calc(6rem+24px)]">
+              <h5 className="mb-3">监考与防作弊</h5>
+              <div className="flex items-center justify-between text-sm mb-2">
+                <div className="flex items-center gap-2">
+                  <EyeOff className="w-4 h-4 text-[#FF6B6B]" />
+                  <span>切屏警告</span>
+                </div>
+                <span className="text-xs text-[#FF6B6B]">{warnings} 次</span>
+              </div>
+              <div className="flex items-center justify-between text-sm mb-3">
+                <div className="flex items-center gap-2">
+                  <Camera className="w-4 h-4 text-[#4C6EF5]" />
+                  <span>摄像头监考</span>
+                </div>
+                <Button size="sm" variant="secondary" onClick={() => setCameraOn(!cameraOn)}>
+                  {cameraOn ? '关闭' : '开启'}
+                </Button>
+              </div>
+              <div className="text-xs text-[#ADB5BD] space-y-1">
+                {proctorLog.slice(-3).map((log, idx) => (
+                  <div key={idx}>{log}</div>
+                ))}
+                {!proctorLog.length && <div>暂无异常记录</div>}
               </div>
             </Card>
           </div>

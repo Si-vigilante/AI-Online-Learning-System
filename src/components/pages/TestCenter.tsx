@@ -1,13 +1,26 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Card } from '../design-system/Card';
 import { Button } from '../design-system/Button';
-import { FileText, Sparkles, Clock, Award, Plus, Play } from 'lucide-react';
+import { FileText, Sparkles, Clock, Award, Plus, Play, Shield, Eye, Camera, Timer, Shuffle, BookOpenCheck } from 'lucide-react';
 
 interface TestCenterProps {
   onNavigate: (page: string) => void;
 }
 
 export function TestCenter({ onNavigate }: TestCenterProps) {
+  const [mode, setMode] = useState<'student' | 'teacher'>('student');
+  const [aiConfig, setAiConfig] = useState({
+    difficulty: '中等',
+    questionTypes: ['单选', '多选', '判断', '简答'],
+    knowledge: ['激活函数', '反向传播'],
+    randomAssemble: true
+  });
+  const [proctorSettings, setProctorSettings] = useState({
+    timer: true,
+    antiCheat: true,
+    camera: false
+  });
+
   const quizzes = [
     {
       id: 1,
@@ -61,6 +74,10 @@ export function TestCenter({ onNavigate }: TestCenterProps) {
         <div className="container-custom">
           <h1 className="text-white mb-2">AI 测验中心</h1>
           <p className="text-lg opacity-90">智能出题、自动评分、个性化反馈</p>
+          <div className="flex gap-3 mt-4">
+            <Button variant={mode === 'student' ? 'secondary' : 'ghost'} size="sm" onClick={() => setMode('student')}>学生端</Button>
+            <Button variant={mode === 'teacher' ? 'secondary' : 'ghost'} size="sm" onClick={() => setMode('teacher')}>教师端</Button>
+          </div>
         </div>
       </div>
       
@@ -68,31 +85,145 @@ export function TestCenter({ onNavigate }: TestCenterProps) {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Main Content */}
           <div className="lg:col-span-2">
-            {/* AI Generate */}
-            <Card className="p-6 mb-8 bg-gradient-to-r from-[#4C6EF5] to-[#845EF7] text-white">
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Sparkles className="w-6 h-6" />
-                    <h3 className="text-white">AI 智能出题</h3>
+            {/* Teacher AI Generate */}
+            {mode === 'teacher' && (
+              <Card className="p-6 mb-8 bg-gradient-to-r from-[#4C6EF5] to-[#845EF7] text-white">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1 space-y-4">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-6 h-6" />
+                      <h3 className="text-white">AI 自动出题</h3>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="p-3 bg-white/10 rounded-lg">
+                        <p className="text-xs opacity-80 mb-1">知识点范围</p>
+                        <div className="flex flex-wrap gap-2">
+                          {aiConfig.knowledge.map((k) => (
+                            <span key={k} className="px-3 py-1 bg-white/15 rounded-full text-xs">{k}</span>
+                          ))}
+                          <button className="text-xs underline" onClick={() => setAiConfig({ ...aiConfig, knowledge: [...aiConfig.knowledge, '卷积网络'] })}>
+                            + 添加
+                          </button>
+                        </div>
+                      </div>
+                      <div className="p-3 bg-white/10 rounded-lg">
+                        <p className="text-xs opacity-80 mb-1">难度</p>
+                        <select
+                          className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm"
+                          value={aiConfig.difficulty}
+                          onChange={(e) => setAiConfig({ ...aiConfig, difficulty: e.target.value })}
+                        >
+                          <option>简单</option>
+                          <option>中等</option>
+                          <option>困难</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="p-3 bg-white/10 rounded-lg">
+                      <p className="text-xs opacity-80 mb-1">题型组合（客观/主观）</p>
+                      <div className="flex flex-wrap gap-2">
+                        {['单选', '多选', '判断', '简答', '论述'].map((type) => (
+                          <button
+                            key={type}
+                            className={`px-3 py-1 rounded-full text-xs border ${aiConfig.questionTypes.includes(type) ? 'bg-white text-[#4C6EF5]' : 'border-white/40'}`}
+                            onClick={() => {
+                              const has = aiConfig.questionTypes.includes(type);
+                              setAiConfig({
+                                ...aiConfig,
+                                questionTypes: has ? aiConfig.questionTypes.filter((t) => t !== type) : [...aiConfig.questionTypes, type]
+                              });
+                            }}
+                          >
+                            {type}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 text-sm">
+                      <label className="flex items-center gap-2">
+                        <Shuffle className="w-4 h-4" />
+                        <input
+                          type="checkbox"
+                          checked={aiConfig.randomAssemble}
+                          onChange={(e) => setAiConfig({ ...aiConfig, randomAssemble: e.target.checked })}
+                        />
+                        题库随机组卷
+                      </label>
+                      <span className="text-white/80">自动包含客观题即时评分与主观题语义评分</span>
+                    </div>
+                    <div className="flex gap-3">
+                      <Button variant="secondary" size="lg">
+                        <Plus className="w-5 h-5" />
+                        生成测验
+                      </Button>
+                      <Button variant="ghost" size="lg">
+                        <BookOpenCheck className="w-5 h-5" />
+                        预览题单
+                      </Button>
+                    </div>
                   </div>
-                  <p className="mb-6 opacity-90">
-                    基于您的学习进度和知识掌握情况，AI 自动生成个性化测验题目
-                  </p>
-                  <Button variant="secondary" size="lg">
-                    <Plus className="w-5 h-5" />
-                    生成测验
-                  </Button>
+                  <div className="w-32 h-32 bg-white/10 rounded-full backdrop-blur-sm flex items-center justify-center ml-6">
+                    <Sparkles className="w-16 h-16" />
+                  </div>
                 </div>
-                <div className="w-32 h-32 bg-white/10 rounded-full backdrop-blur-sm flex items-center justify-center ml-6">
-                  <Sparkles className="w-16 h-16" />
+              </Card>
+            )}
+
+            {/* Student anti-cheat settings */}
+            {mode === 'student' && (
+              <Card className="p-6 mb-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <Shield className="w-5 h-5 text-[#37B24D]" />
+                    <h4 className="mb-0">考前检查 · 防作弊</h4>
+                  </div>
+                  <Button size="sm" variant="secondary" onClick={() => onNavigate('exam-attempt')}>开始答题</Button>
                 </div>
-              </div>
-            </Card>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+                  <div className="p-3 border-2 border-[#E9ECEF] rounded-lg">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Timer className="w-4 h-4 text-[#37B24D]" />
+                      <span>计时</span>
+                    </div>
+                    <label className="flex items-center gap-2 text-xs">
+                      <input type="checkbox" checked={proctorSettings.timer} onChange={(e) => setProctorSettings({ ...proctorSettings, timer: e.target.checked })} />
+                      开启倒计时
+                    </label>
+                  </div>
+                  <div className="p-3 border-2 border-[#E9ECEF] rounded-lg">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Eye className="w-4 h-4 text-[#37B24D]" />
+                      <span>切屏警告</span>
+                    </div>
+                    <label className="flex items-center gap-2 text-xs">
+                      <input type="checkbox" checked={proctorSettings.antiCheat} onChange={(e) => setProctorSettings({ ...proctorSettings, antiCheat: e.target.checked })} />
+                      防止切出考试页面
+                    </label>
+                  </div>
+                  <div className="p-3 border-2 border-[#E9ECEF] rounded-lg">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Camera className="w-4 h-4 text-[#37B24D]" />
+                      <span>摄像头监考</span>
+                    </div>
+                    <label className="flex items-center gap-2 text-xs">
+                      <input type="checkbox" checked={proctorSettings.camera} onChange={(e) => setProctorSettings({ ...proctorSettings, camera: e.target.checked })} />
+                      开启监控（需授权）
+                    </label>
+                  </div>
+                </div>
+              </Card>
+            )}
             
             {/* Available Quizzes */}
             <div>
-              <h3 className="mb-4">可用测验</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="mb-0">可用测验</h3>
+                {mode === 'teacher' && (
+                  <Button variant="ghost" size="sm" onClick={() => onNavigate('exam-result')}>
+                    智能批改复核
+                  </Button>
+                )}
+              </div>
               <div className="space-y-4">
                 {quizzes.map((quiz) => (
                   <Card key={quiz.id} className="p-6">
