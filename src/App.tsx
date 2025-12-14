@@ -22,6 +22,7 @@ import { LearningAnalytics } from './components/pages/LearningAnalytics';
 import { Profile } from './components/pages/Profile';
 import { Settings } from './components/pages/Settings';
 import { FlowChart } from './components/pages/FlowChart';
+import { StudyHub } from './components/pages/StudyHub';
 
 export default function App() {
   const [currentPage, setCurrentPage] = useState('login');
@@ -107,6 +108,8 @@ export default function App() {
         return <ReportReview {...pageProps} currentUser={currentUser} />;
       case 'learning-analytics':
         return <LearningAnalytics {...pageProps} currentUser={currentUser} />;
+      case 'study-hub':
+        return <StudyHub />;
       case 'profile':
         return <Profile {...pageProps} currentUser={currentUser} onProfileUpdate={setCurrentUser} />;
       case 'settings':
