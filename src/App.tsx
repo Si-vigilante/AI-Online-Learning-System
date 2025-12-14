@@ -96,7 +96,7 @@ export default function App() {
       case 'ai-chat':
         return <AIChat {...pageProps} />;
       case 'test-center':
-        return <TestCenter {...pageProps} />;
+        return <TestCenter {...pageProps} currentUser={currentUser} />;
       case 'exam-attempt':
         return <ExamAttempt {...pageProps} />;
       case 'exam-result':

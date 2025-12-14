@@ -2,13 +2,15 @@ import React, { useState } from 'react';
 import { Card } from '../design-system/Card';
 import { Button } from '../design-system/Button';
 import { FileText, Sparkles, Clock, Award, Plus, Play, Shield, Eye, Camera, Timer, Shuffle, BookOpenCheck } from 'lucide-react';
+import { UserProfile } from '../../services/auth';
 
 interface TestCenterProps {
   onNavigate: (page: string) => void;
+  currentUser?: UserProfile | null;
 }
 
-export function TestCenter({ onNavigate }: TestCenterProps) {
-  const [mode, setMode] = useState<'student' | 'teacher'>('student');
+export function TestCenter({ onNavigate, currentUser }: TestCenterProps) {
+  const resolvedRole = currentUser?.role === 'teacher' ? 'teacher' : 'student';
   const [aiConfig, setAiConfig] = useState({
     difficulty: '中等',
     questionTypes: ['单选', '多选', '判断', '简答'],
@@ -74,20 +76,19 @@ export function TestCenter({ onNavigate }: TestCenterProps) {
         <div className="container-custom">
           <h1 className="text-white mb-2">AI 测验中心</h1>
           <p className="text-lg opacity-90">智能出题、自动评分、个性化反馈</p>
-          <div className="flex gap-3 mt-4">
-            <Button variant={mode === 'student' ? 'secondary' : 'ghost'} size="sm" onClick={() => setMode('student')}>学生端</Button>
-            <Button variant={mode === 'teacher' ? 'secondary' : 'ghost'} size="sm" onClick={() => setMode('teacher')}>教师端</Button>
+          <div className="flex gap-3 mt-4 text-sm opacity-80">
+            当前身份：{resolvedRole === 'teacher' ? '教师端' : '学生端'}
           </div>
         </div>
       </div>
       
-      <div className="container-custom py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div className="container-custom py-10">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
           {/* Main Content */}
-          <div className="lg:col-span-2">
+          <div className="lg:col-span-2 space-y-6">
             {/* Teacher AI Generate */}
-            {mode === 'teacher' && (
-              <Card className="p-6 mb-8 bg-gradient-to-r from-[#4C6EF5] to-[#845EF7] text-white">
+            {resolvedRole === 'teacher' && (
+              <Card className="p-6 bg-gradient-to-r from-[#4C6EF5] to-[#845EF7] text-white shadow-lg">
                 <div className="flex items-start justify-between">
                   <div className="flex-1 space-y-4">
                     <div className="flex items-center gap-2">
@@ -170,8 +171,8 @@ export function TestCenter({ onNavigate }: TestCenterProps) {
             )}
 
             {/* Student anti-cheat settings */}
-            {mode === 'student' && (
-              <Card className="p-6 mb-6">
+            {resolvedRole === 'student' && (
+            <Card className="p-6 shadow-sm">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-2">
                     <Shield className="w-5 h-5 text-[#37B24D]" />
@@ -218,7 +219,7 @@ export function TestCenter({ onNavigate }: TestCenterProps) {
             <div>
               <div className="flex items-center justify-between mb-4">
                 <h3 className="mb-0">可用测验</h3>
-                {mode === 'teacher' && (
+                {resolvedRole === 'teacher' && (
                   <Button variant="ghost" size="sm" onClick={() => onNavigate('exam-result')}>
                     智能批改复核
                   </Button>
