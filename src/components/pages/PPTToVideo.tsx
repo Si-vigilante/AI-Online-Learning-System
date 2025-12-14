@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Card } from '../design-system/Card';
 import { Button } from '../design-system/Button';
 import { Dropdown } from '../design-system/Dropdown';
@@ -10,10 +10,14 @@ interface PPTToVideoProps {
 
 export function PPTToVideo({ onNavigate }: PPTToVideoProps) {
   const [uploadedFile, setUploadedFile] = useState<string | null>(null);
+  const [slidesMeta, setSlidesMeta] = useState<{ pages: number; size: string } | null>(null);
   const [voiceStyle, setVoiceStyle] = useState('');
   const [animationStyle, setAnimationStyle] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [hasGenerated, setHasGenerated] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [script, setScript] = useState<string[]>([]);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   
   const voiceOptions = [
     { value: 'male-standard', label: '男声 - 标准' },
@@ -29,16 +33,39 @@ export function PPTToVideo({ onNavigate }: PPTToVideoProps) {
     { value: 'professional', label: '专业演示' }
   ];
   
-  const handleFileUpload = () => {
-    setUploadedFile('深度学习课程.pptx');
+  const handleFilePick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadedFile(file.name);
+    setSlidesMeta({ pages: Math.max(8, Math.min(30, Math.round(file.size / 150000))), size: `${(file.size / 1024 / 1024).toFixed(1)} MB` });
+    setScript([
+      '欢迎来到本节课程，我们将快速回顾核心概念。',
+      '在第一部分，我们讨论神经网络的基本结构。',
+      '接着解析反向传播如何更新权重。',
+      '最后给出实践建议与下一步行动项。'
+    ]);
+    setHasGenerated(false);
+    setProgress(0);
   };
   
   const handleGenerate = () => {
     setIsGenerating(true);
-    setTimeout(() => {
-      setIsGenerating(false);
-      setHasGenerated(true);
-    }, 3000);
+    setProgress(10);
+    const timer = setInterval(() => {
+      setProgress((prev) => {
+        if (prev >= 100) {
+          clearInterval(timer);
+          setIsGenerating(false);
+          setHasGenerated(true);
+          return 100;
+        }
+        return prev + Math.random() * 18;
+      });
+    }, 600);
   };
   
   return (
@@ -58,10 +85,18 @@ export function PPTToVideo({ onNavigate }: PPTToVideoProps) {
                 <h4>上传 PPT 文件</h4>
               </div>
               
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".ppt,.pptx"
+                className="hidden"
+                onChange={handleFileUpload}
+              />
+
               {!uploadedFile ? (
                 <div 
                   className="border-2 border-dashed border-[#E9ECEF] rounded-lg p-12 text-center hover:border-[#4C6EF5] transition-colors cursor-pointer"
-                  onClick={handleFileUpload}
+                  onClick={handleFilePick}
                 >
                   <div className="w-16 h-16 bg-[#EDF2FF] rounded-full flex items-center justify-center mx-auto mb-4">
                     <Upload className="w-8 h-8 text-[#4C6EF5]" />
@@ -77,10 +112,10 @@ export function PPTToVideo({ onNavigate }: PPTToVideoProps) {
                     </div>
                     <div>
                       <h5>{uploadedFile}</h5>
-                      <p className="text-xs text-[#ADB5BD]">2.4 MB · 16 页</p>
+                      <p className="text-xs text-[#ADB5BD]">{slidesMeta?.size || '文件大小'} · {slidesMeta?.pages || 0} 页</p>
                     </div>
                   </div>
-                  <Button variant="ghost" size="sm" onClick={() => setUploadedFile(null)}>
+                  <Button variant="ghost" size="sm" onClick={() => { setUploadedFile(null); setSlidesMeta(null); }}>
                     重新上传
                   </Button>
                 </div>
@@ -187,10 +222,10 @@ export function PPTToVideo({ onNavigate }: PPTToVideoProps) {
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-sm">正在处理...</span>
-                      <span className="text-sm">68%</span>
+                      <span className="text-sm">{Math.min(100, Math.round(progress))}%</span>
                     </div>
                     <div className="w-full h-2 bg-white rounded-full overflow-hidden">
-                      <div className="h-full bg-[#845EF7] transition-all duration-500" style={{ width: '68%' }} />
+                      <div className="h-full bg-[#845EF7] transition-all duration-500" style={{ width: `${Math.min(100, progress)}%` }} />
                     </div>
                   </div>
                 ) : hasGenerated ? (
@@ -199,6 +234,20 @@ export function PPTToVideo({ onNavigate }: PPTToVideoProps) {
                   <p className="text-sm text-[#ADB5BD]">等待开始生成</p>
                 )}
               </div>
+
+              {uploadedFile && (
+                <div className="mt-6 p-4 bg-white rounded-lg border border-[#E9ECEF]">
+                  <div className="flex items-center justify-between mb-2">
+                    <h5 className="mb-0">AI 讲解脚本</h5>
+                    <span className="text-xs text-[#ADB5BD]">字幕已同步</span>
+                  </div>
+                  <ul className="text-sm text-[#495057] space-y-2 max-h-48 overflow-y-auto">
+                    {script.map((line, idx) => (
+                      <li key={idx}>• {line}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </Card>
           </div>
         </div>

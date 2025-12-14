@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Card } from '../design-system/Card';
 import { Button } from '../design-system/Button';
-import { FileText, Sparkles, Download, Eye } from 'lucide-react';
+import { FileText, Sparkles, Download, Eye, Layout, Image as ImageIcon, Wand2, Palette } from 'lucide-react';
 
 interface TextToPPTProps {
   onNavigate: (page: string) => void;
@@ -11,14 +11,110 @@ export function TextToPPT({ onNavigate }: TextToPPTProps) {
   const [inputText, setInputText] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [hasGenerated, setHasGenerated] = useState(false);
+  const [slides, setSlides] = useState<Slide[]>([]);
+  const [template, setTemplate] = useState<'modern' | 'academic' | 'vibrant'>('modern');
+  const [slideCount, setSlideCount] = useState(0);
+  const [matchImages, setMatchImages] = useState(true);
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  type Slide = {
+    title: string;
+    bullets: string[];
+    cover?: boolean;
+  };
+
+  const parseTextToSlides = (text: string): Slide[] => {
+    const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+    const result: Slide[] = [];
+    let current: Slide | null = null;
+
+    lines.forEach((line) => {
+      const headingMatch = line.match(/^(\d+(\.\d+)*)[\\.|、]\\s*(.+)$/);
+      if (headingMatch) {
+        if (current) result.push(current);
+        current = { title: headingMatch[3], bullets: [] };
+      } else if (/^第.*章|^第.*节|^Chapter/i.test(line)) {
+        if (current) result.push(current);
+        current = { title: line.replace(/[:：]/g, ''), bullets: [] };
+      } else if (current) {
+        current.bullets.push(line);
+      } else {
+        current = { title: line, bullets: [] };
+      }
+    });
+    if (current) result.push(current);
+
+    if (result.length) {
+      result.unshift({
+        title: '课程封面',
+        bullets: ['课程名称', '讲师信息', '时间 / 场景'],
+        cover: true
+      });
+      result.push({
+        title: '总结与行动项',
+        bullets: ['本节要点回顾', '下一步学习建议', '思考题']
+      });
+    }
+    return result.slice(0, 25); // 避免过长
+  };
   
   const handleGenerate = () => {
     setIsGenerating(true);
+    const parsed = parseTextToSlides(inputText);
+    setSlides(parsed);
+    setSlideCount(parsed.length);
     setTimeout(() => {
       setIsGenerating(false);
       setHasGenerated(true);
-    }, 2000);
+    }, 1200);
   };
+
+  const handleDownload = async () => {
+    if (!slides.length) return;
+    setIsDownloading(true);
+    try {
+      const pptxModule = await import('pptxgenjs');
+      const PptxGenJS = pptxModule.default;
+      const pptx = new PptxGenJS();
+
+      slides.forEach((slide, idx) => {
+        const s = pptx.addSlide();
+        s.background = { color: 'F8F9FA' };
+
+        s.addText(`${idx + 1}. ${slide.title}`, {
+          x: 0.5, y: 0.5, fontSize: slide.cover ? 30 : 24, bold: true, color: '2F3E9E'
+        });
+
+        const bullets = slide.bullets.length ? slide.bullets : ['待补充内容'];
+        s.addText(
+          bullets.map((b) => `• ${b}`).join('\n'),
+          { x: 0.6, y: 1.2, fontSize: 16, color: '374151', bullet: { type: 'bullet' }, lineSpacing: 18 }
+        );
+
+        if (matchImages) {
+          s.addShape(pptx.ShapeType.rect, {
+            x: 8, y: 1, w: 2, h: 2,
+            fill: { color: 'E9ECEF' },
+            line: { color: 'D0D7DE' }
+          });
+          s.addText('AI 配图', { x: 8.3, y: 1.8, fontSize: 14, color: '6B7280' });
+        }
+      });
+
+      await pptx.writeFile(`AI课件-${new Date().toISOString().slice(0,10)}.pptx`);
+    } catch (err) {
+      console.error('PPT 生成失败', err);
+      alert('生成 PPT 失败，请重试或检查浏览器下载权限');
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  const colorByTemplate = useMemo(() => {
+    if (template === 'academic') return { from: '#0B7285', to: '#364FC7' };
+    if (template === 'vibrant') return { from: '#F76707', to: '#F03E3E' };
+    return { from: '#4C6EF5', to: '#845EF7' };
+  }, [template]);
   
   return (
     <div className="min-h-screen bg-[#F8F9FA]">
@@ -44,7 +140,36 @@ export function TextToPPT({ onNavigate }: TextToPPTProps) {
                 onChange={(e) => setInputText(e.target.value)}
               />
               
-              <div className="space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="p-4 border-2 border-[#E9ECEF] rounded-lg">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Palette className="w-4 h-4 text-[#4C6EF5]" />
+                    <span className="text-sm">模板风格</span>
+                  </div>
+                  <select
+                    className="w-full px-3 py-2 border rounded-lg outline-none focus:border-[#4C6EF5]"
+                    value={template}
+                    onChange={(e) => setTemplate(e.target.value as any)}
+                  >
+                    <option value="modern">现代蓝紫</option>
+                    <option value="academic">学术蓝绿</option>
+                    <option value="vibrant">活力橙红</option>
+                  </select>
+                </div>
+                <div className="p-4 border-2 border-[#E9ECEF] rounded-lg">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={matchImages}
+                      onChange={(e) => setMatchImages(e.target.checked)}
+                    />
+                    自动匹配配图
+                  </label>
+                  <p className="text-xs text-[#ADB5BD] mt-1">将为每页选择主题插图与重点标注</p>
+                </div>
+              </div>
+
+              <div className="space-y-3 mt-4">
                 <Button 
                   fullWidth 
                   size="lg" 
@@ -77,9 +202,9 @@ export function TextToPPT({ onNavigate }: TextToPPTProps) {
                   <h4>生成预览</h4>
                 </div>
                 {hasGenerated && (
-                  <Button variant="secondary" size="sm">
+                  <Button variant="secondary" size="sm" onClick={handleDownload} disabled={isDownloading}>
                     <Download className="w-4 h-4" />
-                    下载 PPT
+                    {isDownloading ? '生成中…' : '下载 PPT'}
                   </Button>
                 )}
               </div>
@@ -95,27 +220,33 @@ export function TextToPPT({ onNavigate }: TextToPPTProps) {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {/* Slide Previews */}
-                  {[1, 2, 3, 4].map((slide) => (
-                    <div key={slide} className="p-4 bg-gradient-to-br from-[#4C6EF5] to-[#845EF7] rounded-lg text-white">
+                  {slides.map((slide, idx) => (
+                    <div
+                      key={idx}
+                      className="p-4 rounded-lg text-white"
+                      style={{ background: `linear-gradient(135deg, ${colorByTemplate.from}, ${colorByTemplate.to})` }}
+                    >
                       <div className="flex items-start gap-3">
                         <div className="w-8 h-8 bg-white/20 rounded flex items-center justify-center flex-shrink-0">
-                          <span className="text-sm">{slide}</span>
+                          <span className="text-sm">{idx + 1}</span>
                         </div>
                         <div className="flex-1">
-                          <h5 className="mb-2 text-white">
-                            {slide === 1 && '深度学习简介'}
-                            {slide === 2 && '什么是深度学习'}
-                            {slide === 3 && '深度学习的应用'}
-                            {slide === 4 && '神经网络基础'}
-                          </h5>
-                          <p className="text-sm opacity-90">
-                            {slide === 1 && '课程概述与学习目标'}
-                            {slide === 2 && '定义、发展历程、核心概念'}
-                            {slide === 3 && '计算机视觉、NLP、推荐系统'}
-                            {slide === 4 && '感知机、激活函数、反向传播'}
-                          </p>
+                          <div className="flex items-center gap-2 mb-1">
+                            {slide.cover ? <Layout className="w-4 h-4" /> : <Wand2 className="w-4 h-4" />}
+                            <h5 className="mb-0 text-white">{slide.title}</h5>
+                          </div>
+                          <ul className="text-sm opacity-90 space-y-1">
+                            {slide.bullets.slice(0, 4).map((b, i) => (
+                              <li key={i}>• {b}</li>
+                            ))}
+                            {slide.bullets.length > 4 && <li>…</li>}
+                          </ul>
                         </div>
+                        {matchImages && (
+                          <div className="w-16 h-16 bg-white/20 rounded-lg flex items-center justify-center">
+                            <ImageIcon className="w-6 h-6" />
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -125,10 +256,10 @@ export function TextToPPT({ onNavigate }: TextToPPTProps) {
               {hasGenerated && (
                 <div className="mt-4 p-4 bg-[#F3F0FF] rounded-lg border border-[#845EF7]/20">
                   <p className="text-sm text-[#212529]">
-                    <strong>已生成 12 页 PPT</strong>
+                    <strong>已生成 {slideCount || slides.length} 页 PPT</strong>
                   </p>
                   <p className="text-xs text-[#ADB5BD] mt-1">
-                    包含封面、目录、内容页和总结页
+                    包含封面、目录、内容页和总结页（已自动配图与重点标注）
                   </p>
                 </div>
               )}
