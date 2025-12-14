@@ -1,6 +1,6 @@
 import React from 'react';
 import { Card } from '../design-system/Card';
-import { Clock, Award, BookOpen, TrendingUp, Target, Zap } from 'lucide-react';
+import { Clock, Award, BookOpen, TrendingUp, Target, Zap, Users, Brain, Activity, Shield, BarChart2 } from 'lucide-react';
 import { UserProfile } from '../../services/auth';
 
 interface LearningAnalyticsProps {
@@ -62,6 +62,17 @@ export function LearningAnalytics({ onNavigate, currentUser }: LearningAnalytics
   ];
   
   const maxHours = Math.max(...weeklyActivity.map(d => d.hours));
+  const weakPoints = [
+    { topic: '算法', score: 68, suggestion: '增加排序/动态规划练习' },
+    { topic: '数学基础', score: 72, suggestion: '补充线性代数与概率统计' }
+  ];
+
+  const classReport = {
+    avgWatch: 36,
+    avgScore: 82,
+    topQuestion: '反向传播梯度消失',
+    recommendation: '针对梯度问题安排专项直播答疑'
+  };
   
   return (
     <div className="min-h-screen bg-[#F8F9FA]">
@@ -270,6 +281,81 @@ export function LearningAnalytics({ onNavigate, currentUser }: LearningAnalytics
               </div>
             </Card>
           </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-8">
+          <Card className="p-6 lg:col-span-2">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Brain className="w-5 h-5 text-[#4C6EF5]" />
+                <h4 className="mb-0">个人学习画像（AI）</h4>
+              </div>
+              <span className="text-xs text-[#ADB5BD]">基于观看时长 / 测验成绩 / 提问内容</span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="p-4 bg-[#F8F9FA] rounded-lg">
+                <p className="text-sm text-[#ADB5BD] mb-2">薄弱知识点</p>
+                <div className="space-y-3">
+                  {weakPoints.map((item) => (
+                    <div key={item.topic}>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-sm">{item.topic}</span>
+                        <span className="text-sm text-[#FF6B6B]">{item.score}</span>
+                      </div>
+                      <div className="w-full h-2 bg-[#E9ECEF] rounded-full overflow-hidden">
+                        <div className="h-full bg-[#FF6B6B] transition-all" style={{ width: `${item.score}%` }} />
+                      </div>
+                      <p className="text-xs text-[#ADB5BD] mt-1">{item.suggestion}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="p-4 bg-[#F8F9FA] rounded-lg">
+                <p className="text-sm text-[#ADB5BD] mb-2">学习习惯分析</p>
+                <ul className="text-sm space-y-2">
+                  <li>• 高峰时段：晚间 20:00-22:00，建议提前安排测验</li>
+                  <li>• 视频观看平均完成度：82%，建议开启 1.25x 提升效率</li>
+                  <li>• 提问偏好：算法/梯度问题，推荐专项巩固清单</li>
+                </ul>
+              </div>
+            </div>
+          </Card>
+
+          <Card className="p-6 space-y-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Users className="w-5 h-5 text-[#37B24D]" />
+              <h4 className="mb-0">班级整体报告</h4>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-[#ADB5BD]">平均观看时长</span>
+              <span>{classReport.avgWatch} 分钟/周</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-[#ADB5BD]">平均测验分</span>
+              <span>{classReport.avgScore}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-[#ADB5BD]">高频提问</span>
+              <span>{classReport.topQuestion}</span>
+            </div>
+            <div className="p-3 bg-[#E7F5FF] rounded-lg border border-[#4C6EF5]/20 text-sm">
+              <div className="flex items-center gap-2 mb-1">
+                <Shield className="w-4 h-4 text-[#4C6EF5]" />
+                <span className="text-[#4C6EF5]">教学建议</span>
+              </div>
+              <p className="text-[#495057]">{classReport.recommendation}</p>
+            </div>
+            <div className="flex gap-3">
+              <Button variant="secondary" size="sm" onClick={() => onNavigate('ai-chat')}>
+                <Activity className="w-4 h-4" />
+                安排专项辅导
+              </Button>
+              <Button variant="ghost" size="sm">
+                <BarChart2 className="w-4 h-4" />
+                导出报告
+              </Button>
+            </div>
+          </Card>
         </div>
       </div>
     </div>

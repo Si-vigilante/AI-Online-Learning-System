@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Card } from '../design-system/Card';
 import { Button } from '../design-system/Button';
 import { Tabs } from '../design-system/Tabs';
-import { Play, Pause, Volume2, Settings, Maximize, BookOpen, MessageSquare, Lightbulb, ChevronRight, Languages, Sparkles, Cloud, Save, RefreshCw } from 'lucide-react';
+import { Play, Pause, Volume2, Settings, Maximize, BookOpen, MessageSquare, Lightbulb, ChevronRight, Languages, Sparkles, Cloud, Save, RefreshCw, User, Mic, PlayCircle } from 'lucide-react';
 import { QuestionCard } from '../design-system/QuestionCard';
 
 interface VideoPlayerProps {
@@ -48,6 +48,10 @@ export function VideoPlayer({ onNavigate }: VideoPlayerProps) {
   const [notes, setNotes] = useState(initialNotes);
   const [noteDraft, setNoteDraft] = useState('');
   const [aiNoteSummary, setAiNoteSummary] = useState('');
+  const [avatarPersona, setAvatarPersona] = useState<'导师' | '助教'>('导师');
+  const [avatarVoice, setAvatarVoice] = useState<'温和' | '正式' | '活泼'>('温和');
+  const [avatarScript, setAvatarScript] = useState('我是数字人讲师，将为你概述本节重点：1）深度学习定义；2）常见应用；3）本节测验建议。');
+  const [avatarPlaying, setAvatarPlaying] = useState(false);
 
   const tabs = [
     { key: 'notes', label: '笔记', icon: <BookOpen className="w-4 h-4" /> },
@@ -351,6 +355,92 @@ export function VideoPlayer({ onNavigate }: VideoPlayerProps) {
                   下一课
                   <ChevronRight className="w-4 h-4" />
                 </Button>
+              </div>
+            </Card>
+
+            <Card className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <User className="w-5 h-5 text-[#4C6EF5]" />
+                  <h4 className="mb-0">AI 教学数字人</h4>
+                </div>
+                <div className="text-xs text-[#ADB5BD]">实时语音 + 肢体动作</div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="p-3 border-2 border-[#E9ECEF] rounded-lg">
+                  <p className="text-xs text-[#ADB5BD] mb-1">角色</p>
+                  <select
+                    className="w-full text-sm border rounded-lg px-2 py-2"
+                    value={avatarPersona}
+                    onChange={(e) => setAvatarPersona(e.target.value as '导师' | '助教')}
+                  >
+                    <option value="导师">导师（稳重）</option>
+                    <option value="助教">助教（亲和）</option>
+                  </select>
+                </div>
+                <div className="p-3 border-2 border-[#E9ECEF] rounded-lg">
+                  <p className="text-xs text-[#ADB5BD] mb-1">语音风格</p>
+                  <select
+                    className="w-full text-sm border rounded-lg px-2 py-2"
+                    value={avatarVoice}
+                    onChange={(e) => setAvatarVoice(e.target.value as '温和' | '正式' | '活泼')}
+                  >
+                    <option value="温和">温和</option>
+                    <option value="正式">正式</option>
+                    <option value="活泼">活泼</option>
+                  </select>
+                </div>
+                <div className="p-3 border-2 border-[#E9ECEF] rounded-lg">
+                  <p className="text-xs text-[#ADB5BD] mb-1">动作匹配</p>
+                  <span className="text-sm text-[#4C6EF5]">强调手势 · 点头 · 摇头</span>
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <p className="text-xs text-[#ADB5BD] mb-1">开场/总结脚本（自动驱动口型与动作）</p>
+                <textarea
+                  className="w-full border-2 border-[#E9ECEF] rounded-lg px-3 py-2 focus:border-[#4C6EF5] outline-none resize-none"
+                  rows={3}
+                  value={avatarScript}
+                  onChange={(e) => setAvatarScript(e.target.value)}
+                />
+              </div>
+
+              <div className="flex items-center justify-between mt-4">
+                <div className="text-xs text-[#ADB5BD]">
+                  状态：{avatarPlaying ? '播报中 · 同步语音与动作' : '待机'}
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      setAvatarScript('我是数字人讲师，将为你概述本节重点：1）深度学习定义；2）常见应用；3）本节测验建议。');
+                    }}
+                  >
+                    生成概述
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      setAvatarPlaying(true);
+                      setTimeout(() => setAvatarPlaying(false), 3500);
+                    }}
+                  >
+                    <PlayCircle className="w-4 h-4" />
+                    播放
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setAvatarPlaying(false)}
+                    disabled={!avatarPlaying}
+                  >
+                    <Mic className="w-4 h-4" />
+                    停止
+                  </Button>
+                </div>
               </div>
             </Card>
           </div>
