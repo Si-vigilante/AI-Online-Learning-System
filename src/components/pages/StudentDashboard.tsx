@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Card } from '../design-system/Card';
 import { Button } from '../design-system/Button';
-import { BookOpen, MessageCircle, FileText, TrendingUp, Clock, Award, Play, CheckCircle } from 'lucide-react';
+import { BookOpen, MessageCircle, FileText, TrendingUp, Clock, Award, Play, CheckCircle, Edit2, Trash, PlusCircle } from 'lucide-react';
 import { UserProfile } from '../../services/auth';
 import { Course, getCourses, getUserEnrollments, setCurrentCourseId, subscribeCourseUpdates } from '../../services/courses';
 
@@ -14,6 +14,10 @@ interface StudentDashboardProps {
 export function StudentDashboard({ onNavigate, currentUser, onSelectCourse }: StudentDashboardProps) {
   const [courses, setCourses] = useState<Course[]>([]);
   const [enrollments, setEnrollments] = useState(() => getUserEnrollments(currentUser?.userId));
+  const [todos, setTodos] = useState<{ id: string; title: string; deadline?: string; done?: boolean }[]>([]);
+  const [todoTitle, setTodoTitle] = useState('');
+  const [todoDeadline, setTodoDeadline] = useState('');
+  const storageKey = useMemo(() => `student-todos-${currentUser?.userId || 'guest'}`, [currentUser?.userId]);
 
   useEffect(() => {
     const load = () => setCourses(getCourses());
@@ -27,6 +31,64 @@ export function StudentDashboard({ onNavigate, currentUser, onSelectCourse }: St
   useEffect(() => {
     setEnrollments(getUserEnrollments(currentUser?.userId));
   }, [currentUser]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          setTodos(parsed);
+        }
+      }
+    } catch (err) {
+      console.warn('加载待办失败', err);
+    }
+  }, [storageKey]);
+
+  const persistTodos = (next: typeof todos) => {
+    setTodos(next);
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(next));
+    } catch (err) {
+      console.warn('保存待办失败', err);
+    }
+  };
+
+  const addTodo = () => {
+    if (!todoTitle.trim()) return;
+    const next = [
+      ...todos,
+      {
+        id: Math.random().toString(36).slice(2, 10),
+        title: todoTitle.trim(),
+        deadline: todoDeadline,
+        done: false
+      }
+    ];
+    persistTodos(next);
+    setTodoTitle('');
+    setTodoDeadline('');
+  };
+
+  const toggleTodo = (id: string) => {
+    const next = todos.map((t) => (t.id === id ? { ...t, done: !t.done } : t));
+    persistTodos(next);
+  };
+
+  const deleteTodo = (id: string) => {
+    const next = todos.filter((t) => t.id !== id);
+    persistTodos(next);
+  };
+
+  const startEdit = (id: string) => {
+    const todo = todos.find((t) => t.id === id);
+    if (todo) {
+      setTodoTitle(todo.title);
+      setTodoDeadline(todo.deadline || '');
+      deleteTodo(id);
+    }
+  };
 
   const stats = currentUser?.stats || {
     coursesEnrolled: 0,
@@ -49,11 +111,6 @@ export function StudentDashboard({ onNavigate, currentUser, onSelectCourse }: St
     () => courses.filter((course) => enrollments.some((enroll) => enroll.courseId === course.id)),
     [courses, enrollments]
   );
-
-  const pendingTasks = [
-    { id: 1, type: 'quiz', title: '暂无待办', deadline: '' },
-    { id: 2, type: 'report', title: '暂无待办', deadline: '' }
-  ];
 
   const openCourse = (courseId: string) => {
     setCurrentCourseId(courseId);
@@ -237,31 +294,67 @@ export function StudentDashboard({ onNavigate, currentUser, onSelectCourse }: St
           {/* Pending Tasks */}
           <div>
             <h3 className="mb-4">待完成任务</h3>
-            <Card className="p-6">
-              <div className="space-y-4">
-                {pendingTasks.map((task) => (
-                  <div key={task.id} className="flex items-start gap-4 p-4 bg-[#F8F9FA] rounded-lg hover:bg-[#E9ECEF] transition-colors cursor-pointer">
-                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                      task.type === 'quiz' ? 'bg-[#EDF2FF]' : 'bg-[#F3F0FF]'
-                    }`}>
-                      <FileText className={`w-5 h-5 ${
-                        task.type === 'quiz' ? 'text-[#4C6EF5]' : 'text-[#845EF7]'
-                      }`} />
-                    </div>
+            <Card className="p-6 space-y-4">
+              <div className="flex flex-col md:flex-row gap-3">
+                <input
+                  className="flex-1 px-3 py-2 border-2 border-[#E9ECEF] rounded-lg focus:border-[#4C6EF5] outline-none"
+                  placeholder="要做什么？"
+                  value={todoTitle}
+                  onChange={(e) => setTodoTitle(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && addTodo()}
+                />
+                <input
+                  className="w-full md:w-52 px-3 py-2 border-2 border-[#E9ECEF] rounded-lg focus:border-[#4C6EF5] outline-none"
+                  placeholder="截止时间（可选）"
+                  type="datetime-local"
+                  value={todoDeadline}
+                  onChange={(e) => setTodoDeadline(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && addTodo()}
+                />
+                <Button onClick={addTodo} className="whitespace-nowrap">
+                  <PlusCircle className="w-4 h-4" />
+                  添加
+                </Button>
+              </div>
+
+              <div className="space-y-3">
+                {todos.map((task) => (
+                  <div
+                    key={task.id}
+                    className="flex items-start gap-4 p-4 bg-[#F8F9FA] rounded-lg border border-[#E9ECEF] hover:border-[#4C6EF5]/40 transition-colors"
+                  >
+                    <button
+                      className={`w-5 h-5 mt-1 rounded border ${task.done ? 'bg-[#51CF66] border-[#37B24D]' : 'border-[#CED4DA]'} flex items-center justify-center`}
+                      onClick={() => toggleTodo(task.id)}
+                      title="完成/未完成"
+                    >
+                      {task.done && <CheckCircle className="w-4 h-4 text-white" />}
+                    </button>
                     <div className="flex-1">
-                      <h5 className="mb-1">{task.title}</h5>
-                      <p className="text-xs text-[#ADB5BD]">截止时间：{task.deadline}</p>
+                      <div className="flex items-center gap-2">
+                        <h5 className={`mb-1 ${task.done ? 'line-through text-[#ADB5BD]' : ''}`}>{task.title}</h5>
+                      </div>
+                      {task.deadline && (
+                        <p className="text-xs text-[#ADB5BD]">截止时间：{task.deadline.replace('T', ' ')}</p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button size="sm" variant="ghost" onClick={() => startEdit(task.id)}>
+                        <Edit2 className="w-4 h-4" />
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => deleteTodo(task.id)}>
+                        <Trash className="w-4 h-4 text-[#FA5252]" />
+                      </Button>
                     </div>
                   </div>
                 ))}
+                {!todos.length && (
+                  <div className="text-center py-8">
+                    <CheckCircle className="w-12 h-12 text-[#51CF66] mx-auto mb-3" />
+                    <p className="text-[#ADB5BD]">太棒了！暂无待完成任务，添加一个吧。</p>
+                  </div>
+                )}
               </div>
-              
-              {pendingTasks.length === 0 && (
-                <div className="text-center py-8">
-                  <CheckCircle className="w-12 h-12 text-[#51CF66] mx-auto mb-3" />
-                  <p className="text-[#ADB5BD]">太棒了！暂无待完成任务</p>
-                </div>
-              )}
             </Card>
           </div>
         </div>
