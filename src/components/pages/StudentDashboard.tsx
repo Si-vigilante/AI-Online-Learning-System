@@ -71,9 +71,9 @@ export function StudentDashboard({ onNavigate, currentUser, onSelectCourse }: St
       </div>
       
       {/* Main Content */}
-      <div className="container-custom py-8">
+      <div className="container-custom pt-12 pb-8">
         {/* Today's Progress */}
-        <div className="mb-8">
+        <div className="pt-6 mb-8">
           <h3 className="mb-4">今日学习进度</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <Card className="p-6">

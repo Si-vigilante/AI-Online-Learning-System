@@ -2550,6 +2550,7 @@ small {
 /* Page transition for smoother page switches */
 .page-shell {
   position: relative;
+  padding-top: 32px;
 }
 
 .page-transition {
