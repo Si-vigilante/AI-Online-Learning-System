@@ -7,6 +7,7 @@ const { LowSync, JSONFileSync } = require('lowdb');
 const path = require('path');
 const { OpenAI } = require('openai');
 const PptxGenJS = require('pptxgenjs');
+const dayjs = require('dayjs');
 
 const app = express();
 const server = http.createServer(app);
@@ -101,6 +102,87 @@ const callDeepSeek = async ({ messages, stream = false, enableThinking = false, 
     response_format: responseFormat,
     extra_body: { enable_thinking: enableThinking }
   });
+};
+
+const sanitizeFilePart = (name) => {
+  if (!name || typeof name !== 'string') return 'AI课件';
+  return name.replace(/[\\/:*?"<>|]/g, '_').slice(0, 40) || 'AI课件';
+};
+
+const sanitizeFileName = (name) => {
+  if (!name || typeof name !== 'string') return 'AI课件.pptx';
+  return name.replace(/[\\/:*?"<>|]/g, '_').slice(0, 60);
+};
+
+const normalizeStr = (str) =>
+  (str || '')
+    .replace(/^[\s　]+|[\s　]+$/g, '')
+    .replace(/[，,。．·]/g, '')
+    .replace(/[:：]/g, ':')
+    .trim();
+
+const cleanBullets = (title, bullets = []) => {
+  const cleaned = [];
+  const seen = new Set();
+  const normalizedTitle = normalizeStr(title);
+  const stripPrefixes = (text) => text.replace(/^(标题|本页|内容)[:：]\s*/i, '').trim();
+
+  bullets.forEach((b) => {
+    let bullet = stripPrefixes(b || '');
+    if (!bullet) return;
+    const normalizedBullet = normalizeStr(bullet);
+    if (normalizedBullet === normalizedTitle) return;
+    if (normalizedTitle && normalizedBullet.startsWith(normalizedTitle)) {
+      bullet = bullet.slice(title.length).replace(/^[:：\s-]+/, '').trim();
+    }
+    const finalNormalized = normalizeStr(bullet);
+    if (!finalNormalized) return;
+    const key = finalNormalized.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    cleaned.push(bullet);
+  });
+
+  if (!cleaned.length) {
+    cleaned.push('核心概念', '典型应用/例题');
+  }
+  return cleaned.slice(0, 6).map((b) => (b.length > 24 ? b.slice(0, 24) : b));
+};
+
+const cleanSlides = (slides = []) =>
+  slides.map((sl, idx) => {
+    const title = (sl.title || `第 ${idx + 1} 页`).trim();
+    const bullets = cleanBullets(title, sl.bullets || []);
+    return {
+      ...sl,
+      title,
+      bullets
+    };
+  });
+
+const applyPageRange = (slides, pageRange) => {
+  const hasRange =
+    pageRange &&
+    typeof pageRange.min === 'number' &&
+    typeof pageRange.max === 'number' &&
+    pageRange.min >= 3 &&
+    pageRange.max <= 30 &&
+    pageRange.min <= pageRange.max;
+
+  if (!hasRange) return slides.slice(0, 20);
+  const { min, max } = pageRange;
+  let result = slides.slice(0, max);
+  if (result.length < min) {
+    const fillerCount = min - result.length;
+    for (let i = 0; i < fillerCount; i++) {
+      result.push({
+        type: 'content',
+        title: `补充内容 ${result.length + 1}`,
+        bullets: ['核心概念', '典型应用/例题']
+      });
+    }
+  }
+  return result;
 };
 
 // Helpers
@@ -206,20 +288,33 @@ JSON 结构示例：
   ]
 }
 要求：
-- 生成 6-12 页内容（含封面），每页 3-6 条要点
-- 不要出现 Markdown、不要额外说明
-- 仅输出 JSON。`;
+- 默认生成 6-12 页内容（含封面），每页 3-6 条要点。若收到页数区间要求，slides 数量必须落在该区间内；内容长则多页，短则少页，但必须在区间内。
+- 每页 title 必须是短语，不超过 18 个字；bullets 每条不超过 24 字，3~6 条。
+- bullets 不能与 title 完全相同，且不要出现“本页标题/标题/内容”等提示词。
+- 不要出现 Markdown、不要额外说明，仅输出 JSON。`;
 
 app.post('/api/ppt', async (req, res) => {
-  const { text, audience, duration, style } = req.body || {};
+  const { text, audience, duration, style, pageRange } = req.body || {};
   if (!text || typeof text !== 'string') {
     return res.status(400).json({ error: 'text is required' });
   }
+  const hasRange =
+    pageRange &&
+    typeof pageRange.min === 'number' &&
+    typeof pageRange.max === 'number' &&
+    pageRange.min >= 3 &&
+    pageRange.max <= 30 &&
+    pageRange.min <= pageRange.max;
+
+  const rangeText = hasRange
+    ? `目标页数区间：${pageRange.min} - ${pageRange.max} 页。内容足够长则靠近上限，较短则靠近下限，但必须落在区间内。`
+    : '默认页数区间 6-12 页，可根据内容长短适当增减。';
+
   const messages = [
     { role: 'system', content: pptSystemPrompt },
     {
       role: 'user',
-      content: `内容:\n${text}\n受众:${audience || '未指定'}\n时长:${duration || '未指定'}\n风格:${style || 'modern'}`
+      content: `内容:\n${text}\n受众:${audience || '未指定'}\n时长:${duration || '未指定'}\n风格:${style || 'modern'}\n${rangeText}`
     }
   ];
   try {
@@ -236,40 +331,50 @@ app.post('/api/ppt', async (req, res) => {
       return res.status(500).json({ error: '模型未返回有效的幻灯片结构', detail: parsed.error || parsed.raw });
     }
 
+    // derive course name
+    const firstLine = text.split('\n').map((l) => l.trim()).find((l) => l.length > 0) || '';
+    const courseName = sanitizeFilePart(data.title || firstLine || 'AI课件');
+
+    // clean slides
+    const cleanedSlides = cleanSlides(data.slides);
+
+    // apply page range constraints
+    const slidesForUse = applyPageRange(cleanedSlides, pageRange);
+
     const pptx = new PptxGenJS();
     pptx.layout = 'LAYOUT_16x9';
 
     // Cover
     const cover = pptx.addSlide();
     cover.background = { color: 'FFFFFF' };
-    cover.addText(data.title || 'AI 生成课件', {
+    cover.addText(data.title || firstLine || 'AI 生成课件', {
       x: 0.7,
-      y: 2,
+      y: 1.6,
       fontSize: 36,
       bold: true,
       color: '2F3E9E'
     });
-    cover.addText(data.subtitle || audience || '', { x: 0.8, y: 3, fontSize: 20, color: '555555' });
+    cover.addText(data.subtitle || audience || '', { x: 0.8, y: 2.6, fontSize: 20, color: '555555' });
 
     // Content slides
-    data.slides.slice(0, 20).forEach((sl, idx) => {
+    slidesForUse.forEach((sl, idx) => {
       const s = pptx.addSlide();
       s.background = { color: 'FFFFFF' };
       s.addText(sl.title || `第 ${idx + 1} 页`, {
         x: 0.7,
-        y: 0.6,
-        fontSize: 26,
+        y: 0.4,
+        fontSize: 32,
         bold: true,
         color: '1F2937'
       });
       const bullets = (sl.bullets || []).slice(0, 6);
-      const bulletText = bullets.length ? bullets.map((b) => `• ${b}`).join('\n') : '• 待补充要点';
+      const bulletText = bullets.length ? bullets.map((b) => `• ${b}`).join('\n') : '• 核心概念\n• 典型应用/例题';
       s.addText(bulletText, {
         x: 0.9,
-        y: 1.4,
+        y: 1.6,
         fontSize: 18,
         color: '374151',
-        lineSpacing: 24
+        lineSpacing: 26
       });
       if (sl.speakerNotes) {
         s.addNotes(sl.speakerNotes);
@@ -277,9 +382,11 @@ app.post('/api/ppt', async (req, res) => {
     });
 
     const buffer = await pptx.write('nodebuffer');
+    const dateStr = dayjs().format('MMDD');
+    const filename = sanitizeFileName(`AI课件_${courseName}_${dateStr}.pptx`);
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename="AI-PPT-${Date.now()}.pptx"`
+      `attachment; filename="${filename}"`
     );
     res.setHeader(
       'Content-Type',

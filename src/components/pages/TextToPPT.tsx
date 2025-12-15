@@ -16,6 +16,9 @@ export function TextToPPT({ onNavigate }: TextToPPTProps) {
   const [audience, setAudience] = useState('');
   const [duration, setDuration] = useState('');
   const [hasDownloaded, setHasDownloaded] = useState(false);
+  const [minPages, setMinPages] = useState<string>('');
+  const [maxPages, setMaxPages] = useState<string>('');
+  const [rangeError, setRangeError] = useState('');
 
   const colorByTemplate = useMemo(() => {
     if (template === 'academic') return { from: '#0B7285', to: '#364FC7' };
@@ -28,11 +31,36 @@ export function TextToPPT({ onNavigate }: TextToPPTProps) {
     return 'simple';
   };
 
+  const validateRange = (minStr: string, maxStr: string) => {
+    if (!minStr && !maxStr) {
+      setRangeError('');
+      return;
+    }
+    const min = Number(minStr);
+    const max = Number(maxStr);
+    if (!minStr || !maxStr || Number.isNaN(min) || Number.isNaN(max)) {
+      setRangeError('请输入完整的页数区间');
+      return;
+    }
+    if (min < 3 || max > 30 || min > max) {
+      setRangeError('页数区间需满足 3 ≤ min ≤ max ≤ 30');
+      return;
+    }
+    setRangeError('');
+  };
+
   const handleGenerateAndDownload = async () => {
-    if (!inputText.trim()) return;
+    if (!inputText.trim() || rangeError) return;
     setIsGenerating(true);
     setErrorMsg('');
     try {
+      const pageRange =
+        minPages && maxPages
+          ? {
+              min: Number(minPages),
+              max: Number(maxPages)
+            }
+          : undefined;
       const resp = await fetch(`${apiBase}/api/ppt`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -40,7 +68,8 @@ export function TextToPPT({ onNavigate }: TextToPPTProps) {
           text: inputText,
           audience,
           duration,
-          style: mapTemplateToStyle(template)
+          style: mapTemplateToStyle(template),
+          pageRange
         })
       });
       if (!resp.ok) {
@@ -49,9 +78,20 @@ export function TextToPPT({ onNavigate }: TextToPPTProps) {
       }
       const blob = await resp.blob();
       const url = URL.createObjectURL(blob);
+      const disposition = resp.headers.get('content-disposition') || '';
+      const match = disposition.match(/filename="(.+?)"/i);
+      const fallbackName = () => {
+        const firstLine = inputText.split('\n').map((l) => l.trim()).find((l) => l) || 'AI课件';
+        const clean = firstLine.replace(/[\\/:*?"<>|]/g, '_').slice(0, 40);
+        const now = new Date();
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const dd = String(now.getDate()).padStart(2, '0');
+        return `AI课件_${clean}_${mm}${dd}.pptx`;
+      };
+      const filename = match ? match[1] : fallbackName();
       const a = document.createElement('a');
       a.href = url;
-      a.download = `AI课件-${new Date().toISOString().slice(0, 10)}.pptx`;
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -125,6 +165,39 @@ export function TextToPPT({ onNavigate }: TextToPPTProps) {
                     <option value="vibrant">活力橙红</option>
                   </select>
                 </div>
+                <div className="p-4 border-2 border-[#E9ECEF] rounded-lg">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-sm text-[#495057]">PPT 页数（区间）</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      className="w-full px-3 py-2 border rounded-lg outline-none focus:border-[#4C6EF5]"
+                      placeholder="如：8"
+                      value={minPages}
+                      onChange={(e) => {
+                        setMinPages(e.target.value);
+                        validateRange(e.target.value, maxPages);
+                      }}
+                      type="number"
+                      min={3}
+                      max={30}
+                    />
+                    <span className="text-sm text-[#ADB5BD]">~</span>
+                    <input
+                      className="w-full px-3 py-2 border rounded-lg outline-none focus:border-[#4C6EF5]"
+                      placeholder="如：12"
+                      value={maxPages}
+                      onChange={(e) => {
+                        setMaxPages(e.target.value);
+                        validateRange(minPages, e.target.value);
+                      }}
+                      type="number"
+                      min={3}
+                      max={30}
+                    />
+                  </div>
+                  <p className="text-xs text-[#ADB5BD] mt-1">可选，范围 3~30，建议 8~12</p>
+                </div>
               </div>
 
               <div className="space-y-3 mt-4">
@@ -132,11 +205,16 @@ export function TextToPPT({ onNavigate }: TextToPPTProps) {
                   fullWidth 
                   size="lg" 
                   onClick={handleGenerateAndDownload}
-                  disabled={!inputText || isGenerating}
+                  disabled={!inputText || isGenerating || Boolean(rangeError)}
                 >
                   <Sparkles className="w-5 h-5" />
                   {isGenerating ? '正在生成中...' : '生成并下载 PPT'}
                 </Button>
+                {rangeError && (
+                  <div className="p-3 bg-[#FFF0F6] border border-[#FA5252] text-[#C92A2A] rounded-lg text-sm">
+                    {rangeError}
+                  </div>
+                )}
                 {errorMsg && (
                   <div className="p-3 bg-[#FFF0F6] border border-[#FA5252] text-[#C92A2A] rounded-lg text-sm">
                     {errorMsg}
