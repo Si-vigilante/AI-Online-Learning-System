@@ -24,12 +24,14 @@ import { Profile } from './components/pages/Profile';
 import { Settings } from './components/pages/Settings';
 import { FlowChart } from './components/pages/FlowChart';
 import { StudyHub } from './components/pages/StudyHub';
+import { useRightClickSwipeBack } from './hooks/useRightClickSwipeBack';
 
 export default function App() {
   const [currentPage, setCurrentPage] = useState('login');
   const [userRole, setUserRole] = useState<UserRole>('student');
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [selectedCourseId, setSelectedCourseId] = useState<string | undefined>();
+  useRightClickSwipeBack();
 
   const getLandingPage = (role: UserRole) => {
     if (role === 'teacher') return 'teacher-dashboard';
