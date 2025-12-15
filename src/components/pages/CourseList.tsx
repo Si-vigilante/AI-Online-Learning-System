@@ -67,6 +67,27 @@ export function CourseList({ onNavigate, onSelectCourse, currentUser }: CourseLi
   }, [currentUser, courses]);
 
   const isTeacher = currentUser?.role === 'teacher';
+  const enrolledIds = useMemo(
+    () => new Set(userEnrollments.map((item) => item.courseId)),
+    [userEnrollments]
+  );
+
+  const sortedCourses = useMemo(() => {
+    const hasThumb = (course: Course) => Boolean(course.thumbnail);
+    const isEnrolled = (course: Course) => enrolledIds.has(course.id);
+
+    return [...courses].sort((a, b) => {
+      const aEnrolled = isEnrolled(a);
+      const bEnrolled = isEnrolled(b);
+      if (aEnrolled !== bEnrolled) return Number(bEnrolled) - Number(aEnrolled);
+
+      const aThumb = hasThumb(a);
+      const bThumb = hasThumb(b);
+      if (aThumb !== bThumb) return Number(bThumb) - Number(aThumb);
+
+      return 0;
+    });
+  }, [courses, enrolledIds]);
   const myCourses = useMemo(
     () => courses.filter(
       (c) =>
@@ -85,7 +106,7 @@ export function CourseList({ onNavigate, onSelectCourse, currentUser }: CourseLi
     }));
   }, [courses]);
   
-  const filteredCourses = courses.filter(course => {
+  const filteredCourses = sortedCourses.filter(course => {
     const matchesTab = activeTab === 'all' || course.category === activeTab;
     const matchesSearch = course.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          course.instructor.toLowerCase().includes(searchQuery.toLowerCase());
@@ -411,7 +432,7 @@ export function CourseList({ onNavigate, onSelectCourse, currentUser }: CourseLi
                   </>
                 )}
                 
-                <div className="flex gap-2">
+                <div className="mt-2 grid grid-cols-[1fr_auto] gap-3 items-center">
                   <Button 
                     variant="primary"
                     fullWidth
