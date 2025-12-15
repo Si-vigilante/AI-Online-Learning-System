@@ -41,11 +41,14 @@ export interface Course {
   duration: string;
   rating: number;
   thumbnail?: string;
+  uploadedThumbnailName?: string;
   description: string;
   learningGoals: string[];
   curriculum: CourseChapter[];
   knowledgeSplits: { chapter: string; points: string[] }[];
   materials: CourseMaterial[];
+  uploadedMaterials?: { name: string; url: string }[];
+  contentSources?: { type: 'file' | 'link'; name: string; url: string }[];
   learningPath: LearningPathStage[];
   framework?: string;
   createdBy?: string;
@@ -766,8 +769,11 @@ type CourseCreateInput = {
   level?: string;
   duration?: string;
   thumbnail?: string;
+  uploadedThumbnailName?: string;
   description?: string;
   materials?: string[];
+  uploadedMaterials?: { name: string; url: string }[];
+  contentSources?: { type: 'file' | 'link'; name: string; url: string }[];
   framework?: string;
   createdBy?: string;
   chapters?: string[];
@@ -804,6 +810,7 @@ export const createCourse = (input: CourseCreateInput) => {
     duration: input.duration || '8周',
     rating: 4.9,
     thumbnail: input.thumbnail || '',
+    uploadedThumbnailName: input.uploadedThumbnailName,
     description:
       input.description || `${input.title} 课程，结合案例与项目驱动，帮助你快速上手并完成一次可展示的作品。`,
     learningGoals: input.learningGoals?.length ? input.learningGoals : scaffold.learningGoals,
@@ -818,6 +825,8 @@ export const createCourse = (input: CourseCreateInput) => {
       type: 'doc' as const,
       size: ''
     })) || scaffold.materials,
+    uploadedMaterials: input.uploadedMaterials,
+    contentSources: input.contentSources,
     learningPath: scaffold.learningPath,
     framework: input.framework || scaffold.framework,
     createdBy: input.createdBy || 'teacher',

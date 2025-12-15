@@ -6,8 +6,21 @@
       "content": "今天吃点啥比较好？",
       "author": "User-3761",
       "createdAt": 1765792676911,
-      "answers": [],
-      "acceptedAnswerId": null
+      "answers": [
+        {
+          "id": "3b35ldns",
+          "content": "我吃了凉拌菜",
+          "author": "User-3761",
+          "createdAt": 1765797759972
+        },
+        {
+          "id": "i034nhm2",
+          "content": "不错",
+          "author": "User-3761",
+          "createdAt": 1765797797157
+        }
+      ],
+      "acceptedAnswerId": "i034nhm2"
     },
     {
       "id": "seed-qa-1",
@@ -36,6 +49,14 @@
     }
   ],
   "forumPosts": [
+    {
+      "id": "8owdem2i",
+      "title": "张大佑今天吃了什么？",
+      "content": "没有人知道",
+      "author": "User-3761",
+      "createdAt": 1765798008125,
+      "comments": []
+    },
     {
       "id": "seed-post-1",
       "title": "分享：我用残差网络提升了 5% 的准确率",

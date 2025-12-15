@@ -81,6 +81,11 @@ export function CourseDetail({ onNavigate, onSelectCourse, courseId, currentUser
       alert('请先选课后再开始学习');
       return;
     }
+    const link = course?.contentSources?.find((item) => item.type === 'link')?.url;
+    if (link) {
+      window.open(link, '_blank');
+      return;
+    }
     onNavigate('video-player');
   };
 

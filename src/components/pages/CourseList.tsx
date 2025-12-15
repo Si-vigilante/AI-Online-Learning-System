@@ -64,10 +64,14 @@ export function CourseList({ onNavigate, onSelectCourse, currentUser }: CourseLi
     level: '基础',
     duration: '8周',
     thumbnail: '',
+    uploadedThumbnailName: '',
     description: '',
     materials: '',
     chapters: ''
   });
+  const [materialFiles, setMaterialFiles] = useState<{ name: string; url: string }[]>([]);
+  const [contentSources, setContentSources] = useState<{ type: 'file' | 'link'; name: string; url: string }[]>([]);
+  const [contentLink, setContentLink] = useState('');
   
   useEffect(() => {
     const load = () => setCourses(getCourses());
@@ -189,6 +193,7 @@ export function CourseList({ onNavigate, onSelectCourse, currentUser }: CourseLi
       .split('\n')
       .map((item) => item.trim())
       .filter(Boolean);
+    const content = [...contentSources];
 
     const course = createCourse({
       title: form.title.trim(),
@@ -197,8 +202,11 @@ export function CourseList({ onNavigate, onSelectCourse, currentUser }: CourseLi
       level: form.level,
       duration: form.duration,
       thumbnail: form.thumbnail,
+      uploadedThumbnailName: form.uploadedThumbnailName,
       description: form.description,
       materials,
+      uploadedMaterials: materialFiles,
+      contentSources: content,
       framework: plan?.framework,
       createdBy: currentUser?.userId || 'teacher',
       chapters,
@@ -211,13 +219,44 @@ export function CourseList({ onNavigate, onSelectCourse, currentUser }: CourseLi
       level: '基础',
       duration: '8周',
       thumbnail: '',
+      uploadedThumbnailName: '',
       description: '',
       materials: '',
       chapters: ''
     });
     setPlan(null);
+    setMaterialFiles([]);
+    setContentSources([]);
+    setContentLink('');
     onSelectCourse(course.id);
     onNavigate('course-detail');
+  };
+
+  const handleThumbnailUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    setForm((prev) => ({ ...prev, thumbnail: url, uploadedThumbnailName: file.name }));
+  };
+
+  const handleMaterialUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    const next = files.map((file) => ({ name: file.name, url: URL.createObjectURL(file) }));
+    setMaterialFiles((prev) => [...prev, ...next]);
+  };
+
+  const handleContentFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    setContentSources((prev) => [...prev, { type: 'file', name: file.name, url }]);
+  };
+
+  const handleAddContentLink = () => {
+    if (!contentLink.trim()) return;
+    setContentSources((prev) => [...prev, { type: 'link', name: contentLink.trim(), url: contentLink.trim() }]);
+    setContentLink('');
   };
   
   return (
@@ -298,12 +337,18 @@ export function CourseList({ onNavigate, onSelectCourse, currentUser }: CourseLi
                     value={form.duration}
                     onChange={(e) => setForm({ ...form, duration: e.target.value })}
                   />
-                  <input
-                    className="w-full px-4 py-2.5 rounded-lg border-2 border-[#E9ECEF]"
-                    placeholder="封面图片 URL"
-                    value={form.thumbnail}
-                    onChange={(e) => setForm({ ...form, thumbnail: e.target.value })}
-                  />
+                  <div className="w-full px-4 py-2.5 rounded-lg border-2 border-[#E9ECEF] flex items-center justify-between gap-3">
+                    <div className="flex-1">
+                      <p className="text-xs text-[#ADB5BD] mb-1">封面图片</p>
+                      <p className="text-sm text-[#212529] line-clamp-1">
+                        {form.uploadedThumbnailName || '选择文件上传封面'}
+                      </p>
+                    </div>
+                    <label className="px-3 py-2 bg-[#EDF2FF] text-[#4C6EF5] rounded-lg cursor-pointer text-sm whitespace-nowrap">
+                      选择文件
+                      <input type="file" accept="image/*" className="hidden" onChange={handleThumbnailUpload} />
+                    </label>
+                  </div>
                   <input
                     className="w-full px-4 py-2.5 rounded-lg border-2 border-[#E9ECEF]"
                     value={currentUser?.name || '教师'}
@@ -320,13 +365,35 @@ export function CourseList({ onNavigate, onSelectCourse, currentUser }: CourseLi
                 />
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <textarea
-                    className="w-full px-4 py-2.5 rounded-lg border-2 border-[#E9ECEF]"
-                    rows={4}
-                    placeholder="课程资料（每行一条）"
-                    value={form.materials}
-                    onChange={(e) => setForm({ ...form, materials: e.target.value })}
-                  />
+                  <div className="space-y-2">
+                    <textarea
+                      className="w-full px-4 py-2.5 rounded-lg border-2 border-[#E9ECEF]"
+                      rows={4}
+                      placeholder="课程资料（每行一条）"
+                      value={form.materials}
+                      onChange={(e) => setForm({ ...form, materials: e.target.value })}
+                    />
+                    <div className="flex items-center justify-between px-3 py-2 rounded-lg border-2 border-dashed border-[#E9ECEF]">
+                      <div>
+                        <p className="text-sm text-[#212529]">上传课程资料</p>
+                        <p className="text-xs text-[#ADB5BD]">支持多文件（如 PDF/PPT）</p>
+                      </div>
+                      <label className="px-3 py-2 bg-[#F8F9FA] text-[#4C6EF5] rounded-lg cursor-pointer text-sm whitespace-nowrap">
+                        选择文件
+                        <input type="file" multiple className="hidden" onChange={handleMaterialUpload} />
+                      </label>
+                    </div>
+                    {materialFiles.length > 0 && (
+                      <div className="text-xs text-[#ADB5BD] space-y-1">
+                        {materialFiles.map((file) => (
+                          <div key={file.url} className="flex items-center gap-2">
+                            <span className="w-1.5 h-1.5 rounded-full bg-[#4C6EF5]" />
+                            <span className="line-clamp-1">{file.name}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   <textarea
                     className="w-full px-4 py-2.5 rounded-lg border-2 border-[#E9ECEF]"
                     rows={4}
@@ -334,6 +401,41 @@ export function CourseList({ onNavigate, onSelectCourse, currentUser }: CourseLi
                     value={form.chapters}
                     onChange={(e) => setForm({ ...form, chapters: e.target.value })}
                   />
+                </div>
+
+                <div className="space-y-2 p-3 border-2 border-[#E9ECEF] rounded-lg bg-[#F8F9FA]">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-[#212529] mb-1">课程内容上传</p>
+                      <p className="text-xs text-[#ADB5BD]">可上传视频文件，或添加网页跳转链接</p>
+                    </div>
+                    <label className="px-3 py-2 bg-white text-[#4C6EF5] rounded-lg cursor-pointer text-sm border border-[#E9ECEF]">
+                      上传视频/文件
+                      <input type="file" accept="video/*,application/*" className="hidden" onChange={handleContentFile} />
+                    </label>
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      className="flex-1 px-3 py-2 rounded-lg border-2 border-[#E9ECEF]"
+                      placeholder="粘贴内容链接（如网页或网盘地址）"
+                      value={contentLink}
+                      onChange={(e) => setContentLink(e.target.value)}
+                    />
+                    <Button type="button" variant="secondary" size="sm" onClick={handleAddContentLink}>
+                      添加链接
+                    </Button>
+                  </div>
+                  {contentSources.length > 0 && (
+                    <div className="text-xs text-[#ADB5BD] space-y-1">
+                      {contentSources.map((item, idx) => (
+                        <div key={item.url + idx} className="flex items-center gap-2">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#845EF7]" />
+                          <span className="text-[#212529]">{item.type === 'file' ? '文件' : '链接'}：</span>
+                          <span className="line-clamp-1">{item.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {plan && (
