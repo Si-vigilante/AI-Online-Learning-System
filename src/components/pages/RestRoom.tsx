@@ -6,14 +6,12 @@ import {
   Volume2,
   VolumeX,
   ChevronRight,
-  ChevronLeft,
   Lock,
   Unlock,
   Radio,
   Users,
   Timer,
-  TimerReset,
-  Link as LinkIcon
+  TimerReset
 } from 'lucide-react';
 import { Button } from '../design-system/Button';
 
@@ -42,16 +40,16 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
   const [hasInteracted, setHasInteracted] = useState(false);
   const [volume, setVolume] = useState(() => {
     const stored = localStorage.getItem('rest-room-volume');
-    const num = stored ? Number(stored) : 60;
-    return Number.isFinite(num) ? Math.min(Math.max(num, 0), 100) : 60;
+    const num = stored ? Number(stored) : 5;
+    return Number.isFinite(num) ? Math.min(Math.max(num, 0), 100) : 5;
   });
   const [activeAudioKey, setActiveAudioKey] = useState<'a' | 'b'>('a');
   const audioARef = useRef<HTMLAudioElement>(new Audio(SCENES[0].audio));
   const audioBRef = useRef<HTMLAudioElement>(new Audio());
   const [playHint, setPlayHint] = useState('点击播放开始音乐');
 
-  const [leftCollapsed, setLeftCollapsed] = useState(true);
-  const [rightCollapsed, setRightCollapsed] = useState(true);
+  const [leftCollapsed, setLeftCollapsed] = useState(false);
+  const [rightCollapsed, setRightCollapsed] = useState(false);
   const [leftPinned, setLeftPinned] = useState(false);
   const [rightPinned, setRightPinned] = useState(false);
   const [lastActive, setLastActive] = useState(Date.now());
@@ -59,7 +57,7 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
   const [isTypingRoom, setIsTypingRoom] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
 
-  const [showScenePicker, setShowScenePicker] = useState(false);
+  const [showScenePicker, setShowScenePicker] = useState(true);
 
   const [roomId, setRoomId] = useState('');
   const [joinedRoom, setJoinedRoom] = useState('');
@@ -89,9 +87,22 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
   }, []);
 
   useEffect(() => {
+    return () => {
+      try {
+        audioARef.current.pause();
+        audioBRef.current.pause();
+      } catch {
+        // ignore
+      }
+      setIsPlaying(false);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
     const id = setInterval(() => {
       const now = Date.now();
-      if (now - lastActive > 5000 && !isDraggingVolume && !isTypingRoom) {
+      if (now - lastActive > 15000 && !isDraggingVolume && !isTypingRoom) {
         if (!leftPinned) setLeftCollapsed(true);
         if (!rightPinned) setRightCollapsed(true);
       }
@@ -108,6 +119,32 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
     }, 1000);
     return () => clearInterval(id);
   }, [timerRunning]);
+
+  useEffect(() => {
+    const vol = volume / 100;
+    [audioARef.current, audioBRef.current].forEach((a) => {
+      a.loop = true;
+      a.preload = 'auto';
+      a.volume = vol;
+    });
+    const tryAutoPlay = async () => {
+      activeAudio.src = SCENES[sceneIndex].audio;
+      activeAudio.loop = true;
+      applyVolume(activeAudio, vol);
+      try {
+        await activeAudio.play();
+        setIsPlaying(true);
+        setHasInteracted(true);
+        setPlayHint('');
+      } catch (err) {
+        console.warn('自动播放被拦截，等待用户点击', err);
+        setIsPlaying(false);
+        setPlayHint('点击播放开始音乐');
+      }
+    };
+    tryAutoPlay();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     localStorage.setItem('rest-room-volume', String(volume));
@@ -252,19 +289,30 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
 
   return (
     <div
-      className="relative min-h-screen overflow-hidden text-white"
+      className="relative overflow-hidden text-white"
+      style={{ minHeight: 'calc(100vh - 88px)' }}
       onMouseMove={markActive}
       onTouchStart={markActive}
     >
       {/* Background layers */}
       <div
-        className="absolute inset-0 bg-center bg-cover rest-kenburns"
-        style={{ backgroundImage: `url(${currentBg})` }}
+        className="absolute inset-0 rest-kenburns"
+        style={{
+          backgroundImage: `url(${currentBg})`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backgroundRepeat: 'no-repeat'
+        }}
       />
       {nextBg && (
         <div
-          className={`absolute inset-0 bg-center bg-cover rest-kenburns transition-opacity duration-700 ${bgFading ? 'opacity-100' : 'opacity-0'}`}
-          style={{ backgroundImage: `url(${nextBg})` }}
+          className={`absolute inset-0 rest-kenburns transition-opacity duration-700 ${bgFading ? 'opacity-100' : 'opacity-0'}`}
+          style={{
+            backgroundImage: `url(${nextBg})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            backgroundRepeat: 'no-repeat'
+          }}
         />
       )}
       <div className="absolute inset-0 bg-gradient-to-t from-black/35 via-black/10 to-black/20 mix-blend-normal rest-glow" />
@@ -281,7 +329,7 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
 
       {/* Left: meditation control */}
       <div
-        className="fixed bottom-6 left-6"
+        className="fixed bottom-6 left-6 z-40"
         onMouseEnter={() => {
           if (!isMobile) setLeftCollapsed(false);
           markActive();
@@ -291,12 +339,30 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
         }}
       >
         {leftCollapsed ? (
-          <button
-            className="w-12 h-12 rounded-full bg-white/15 backdrop-blur-md border border-white/30 shadow-lg flex items-center justify-center hover:bg-white/25 transition-all"
-            onClick={toggleLeft}
-          >
-            <Music2 className="w-5 h-5" />
-          </button>
+          <div className="flex flex-col gap-2">
+            <button
+              className="w-14 h-14 rounded-full bg-white/80 text-[#4C6EF5] border border-white/60 shadow-lg flex items-center justify-center hover:bg-white transition-all"
+              onClick={handlePlayPause}
+              title={isPlaying ? '暂停' : '播放'}
+            >
+              {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
+            </button>
+            <button
+              className="px-3 py-2 rounded-full bg-white/18 backdrop-blur-md border border-white/40 text-sm hover:bg-white/28 transition"
+              onClick={() => {
+                const next = (sceneIndex + 1) % SCENES.length;
+                crossfadeToScene(next);
+              }}
+            >
+              切换场景
+            </button>
+            <button
+              className="px-3 py-2 rounded-full bg-white/15 backdrop-blur-md border border-white/30 text-sm hover:bg-white/25 transition"
+              onClick={toggleLeft}
+            >
+              展开控制
+            </button>
+          </div>
         ) : (
           <div className="rest-glass w-[320px] p-4">
             <div className="flex items-center justify-between mb-3">
@@ -315,7 +381,7 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
 
             <div className="flex items-center gap-3 mb-3">
               <button
-                className="p-3 rounded-full bg-white/15 hover:bg-white/25 transition"
+                className="p-3 rounded-full bg-white/80 text-[#4C6EF5] hover:bg-white transition"
                 onClick={handlePlayPause}
               >
                 {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
@@ -378,13 +444,13 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
       >
         {rightCollapsed ? (
           <button
-            className="w-12 h-12 rounded-full bg-white/15 backdrop-blur-md border border-white/30 shadow-lg flex items-center justify-center hover:bg-white/25 transition-all"
+            className="w-14 h-14 rounded-full bg-white/80 text-[#4C6EF5] border border-white/60 shadow-lg flex items-center justify-center hover:bg-white transition-all"
             onClick={toggleRight}
           >
             <Timer className="w-5 h-5" />
           </button>
         ) : (
-          <div className="rest-glass w-[340px] p-4">
+          <div className="rest-glass w-[340px] p-4 z-40">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <Users className="w-4 h-4" />
@@ -501,11 +567,6 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
           点击角落圆形按钮展开控制
         </div>
       )}
-
-      {/* Minimal link to background assets note */}
-      <div className="fixed left-1/2 -translate-x-1/2 bottom-4 text-[11px] text-white/60">
-        背景资源路径：/Rest/1..6（图片、音频），可用 jpg/png/webp 与 mp3/ogg/wav
-      </div>
     </div>
   );
 }
