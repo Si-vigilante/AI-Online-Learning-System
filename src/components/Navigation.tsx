@@ -59,9 +59,9 @@ export function Navigation({ currentPage, onNavigate, userRole = 'student', curr
               <div className="w-10 h-10 bg-gradient-to-br from-[#4C6EF5] to-[#845EF7] rounded-lg flex items-center justify-center">
                 <Sparkles className="w-6 h-6 text-white" />
               </div>
-              <div className="leading-tight">
-                <p className="text-sm md:text-base font-semibold text-[#212529] whitespace-nowrap">知域 · AI 智能教学系统</p>
-                <p className="text-xs text-[#ADB5BD] whitespace-nowrap leading-snug">
+              <div className="flex flex-col justify-center leading-tight translate-y-[100px] space-y-0.5">
+                <p className="text-sm md:text-base font-semibold text-[#212529] whitespace-nowrap leading-tight">知域 · AI 智能教学系统</p>
+                <p className="text-xs text-[#ADB5BD] whitespace-nowrap leading-tight">
                   {userRole === 'teacher' ? '教师中心' : userRole === 'assistant' ? 'AI 助教' : '智慧学习平台'}
                 </p>
               </div>
@@ -136,7 +136,7 @@ export function Navigation({ currentPage, onNavigate, userRole = 'student', curr
             <div className="w-8 h-8 bg-gradient-to-br from-[#4C6EF5] to-[#845EF7] rounded-lg flex items-center justify-center">
               <Sparkles className="w-5 h-5 text-white" />
             </div>
-            <span className="text-sm font-semibold whitespace-nowrap">知域 · AI 智能教学系统</span>
+            <span className="text-sm font-semibold whitespace-nowrap leading-tight translate-y-[2px]">知域 · AI 智能教学系统</span>
           </div>
           
           <button
