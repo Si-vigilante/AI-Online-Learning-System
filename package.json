@@ -32,10 +32,15 @@
             "class-variance-authority": "^0.7.1",
             "clsx": "*",
             "cmdk": "^1.1.1",
+            "cors": "^2.8.5",
+            "dotenv": "^17.2.3",
             "embla-carousel-react": "^8.6.0",
+            "express": "^4.18.2",
             "input-otp": "^1.4.2",
+            "lowdb": "^3.0.0",
             "lucide-react": "^0.487.0",
             "next-themes": "^0.4.6",
+            "openai": "^6.10.0",
             "pptxgenjs": "^3.12.0",
             "react": "^18.3.1",
             "react-day-picker": "^8.10.1",
@@ -43,30 +48,27 @@
             "react-hook-form": "^7.55.0",
             "react-resizable-panels": "^2.1.7",
             "recharts": "^2.15.2",
+            "socket.io": "^4.7.5",
+            "socket.io-client": "^4.7.5",
             "sonner": "^2.0.3",
             "tailwind-merge": "*",
             "tailwindcss": "*",
-            "vaul": "^1.1.2",
-            "socket.io-client": "^4.7.5",
-            "express": "^4.18.2",
-            "cors": "^2.8.5",
-            "lowdb": "^3.0.0",
-            "socket.io": "^4.7.5"
+            "vaul": "^1.1.2"
       },
       "devDependencies": {
             "@types/node": "^20.10.0",
             "@vitejs/plugin-react-swc": "^3.10.2",
-            "vite": "6.3.5",
             "concurrently": "^8.2.2",
             "nodemon": "^3.0.3",
-            "typescript": "^5.6.3"
+            "typescript": "^5.6.3",
+            "vite": "6.3.5"
       },
       "scripts": {
-      "dev": "concurrently \"npm run dev:client\" \"npm run dev:server\"",
-      "dev:client": "vite",
-      "dev:server": "nodemon server/index.js --ignore server/db.json",
-      "build": "vite build",
-      "start": "vite",
-      "preview": "vite preview"
+            "dev": "concurrently \"npm run dev:client\" \"npm run dev:server\"",
+            "dev:client": "vite",
+            "dev:server": "nodemon server/index.js --ignore server/db.json",
+            "build": "vite build",
+            "start": "vite",
+            "preview": "vite preview"
       }
 }

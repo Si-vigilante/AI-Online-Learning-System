@@ -1,9 +1,11 @@
+require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const cors = require('cors');
 const { Server } = require('socket.io');
 const { LowSync, JSONFileSync } = require('lowdb');
 const path = require('path');
+const { OpenAI } = require('openai');
 
 const app = express();
 const server = http.createServer(app);
@@ -23,8 +25,168 @@ const db = new LowSync(adapter, { qaQuestions: [], forumPosts: [] });
 db.read();
 db.data = db.data || { qaQuestions: [], forumPosts: [] };
 
+// ModelScope / DeepSeek config
+const MODELSCOPE_BASE_URL = 'https://api-inference.modelscope.cn/v1';
+const MODELSCOPE_MODEL = process.env.MODELSCOPE_MODEL || 'deepseek-ai/DeepSeek-V3.2';
+const openai = new OpenAI({
+  baseURL: MODELSCOPE_BASE_URL,
+  apiKey: process.env.MODELSCOPE_TOKEN
+});
+
+const systemPrompts = {
+  translate: '你是精准的实时翻译助手，仅输出译文，保持简洁准确，不添加解释。',
+  organize:
+    '请将输入内容整理为结构化摘要，必须输出 JSON {title, summary, key_points[], action_items[]}，不要额外解释。',
+  tutor:
+    '你是简洁的助教，回答时使用分点。如果信息不足，先提出1-2个澄清问题再回答。',
+  quiz:
+    '基于输入生成测验题，必须输出 JSON {questions:[{type,stem,options,answer,analysis,difficulty,knowledge}]}，覆盖关键知识点，答案清晰。',
+  grade:
+    '请对提交内容进行批改，必须输出 JSON {score, breakdown:[{item,score,comment}], strengths[], issues[], suggestions[]}，给出可执行建议。'
+};
+
+const defaultStreamByTask = {
+  translate: true,
+  tutor: true,
+  organize: false,
+  quiz: false,
+  grade: false
+};
+
+const taskRequiresJson = (task) => ['organize', 'quiz', 'grade'].includes(task);
+
+const formatPayload = (payload) => {
+  if (payload === undefined || payload === null) return '';
+  if (typeof payload === 'string') return payload;
+  try {
+    return JSON.stringify(payload);
+  } catch (err) {
+    return String(payload);
+  }
+};
+
+const parseJsonFallback = (raw) => {
+  if (typeof raw === 'object' && raw !== null) {
+    return { success: true, data: raw, raw };
+  }
+  if (typeof raw !== 'string') {
+    return { success: false, raw, error: 'Response is not a string' };
+  }
+  try {
+    return { success: true, data: JSON.parse(raw), raw };
+  } catch (err) {
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (match) {
+      try {
+        return {
+          success: true,
+          data: JSON.parse(match[0]),
+          raw,
+          warning: 'Parsed first JSON object from mixed content.'
+        };
+      } catch (err2) {
+        // fall through
+      }
+    }
+  }
+  return { success: false, raw, error: 'Failed to parse JSON from model response' };
+};
+
+const callDeepSeek = async ({ messages, stream = false, enableThinking = false, responseFormat }) => {
+  return openai.chat.completions.create({
+    model: MODELSCOPE_MODEL,
+    messages,
+    stream,
+    response_format: responseFormat,
+    extra_body: { enable_thinking: enableThinking }
+  });
+};
+
 // Helpers
 const genId = () => Math.random().toString(36).slice(2, 10);
+
+app.post('/api/ai', async (req, res) => {
+  const { task, payload, stream: streamFlag, enable_thinking } = req.body || {};
+  const systemPrompt = systemPrompts[task];
+  if (!systemPrompt) {
+    return res.status(400).json({ error: 'Unsupported task' });
+  }
+
+  const stream = typeof streamFlag === 'boolean' ? streamFlag : defaultStreamByTask[task] || false;
+  const enableThinking = Boolean(enable_thinking);
+  const responseFormat = taskRequiresJson(task) && !stream ? { type: 'json_object' } : undefined;
+  const messages = [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: formatPayload(payload) }
+  ];
+
+  if (stream) {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders?.();
+    const sendSse = (data) => {
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+    let finalContent = '';
+    let reasoningContent = '';
+
+    try {
+      const completion = await callDeepSeek({ messages, stream: true, enableThinking, responseFormat });
+      for await (const chunk of completion) {
+        const delta = chunk.choices?.[0]?.delta || {};
+        if (delta.reasoning_content) {
+          reasoningContent += delta.reasoning_content;
+          sendSse({ type: 'thinking', delta: delta.reasoning_content });
+        }
+        if (delta.content) {
+          finalContent += delta.content;
+          sendSse({ type: 'content', delta: delta.content });
+        }
+      }
+      sendSse({ type: 'done', content: finalContent, reasoning: reasoningContent });
+      res.end();
+    } catch (err) {
+      const statusCode = err?.status || err?.statusCode || err?.response?.status || 500;
+      const message =
+        statusCode === 401
+          ? '鉴权失败：请检查 MODELSCOPE_TOKEN'
+          : statusCode === 429
+            ? '请求过于频繁或额度不足，请稍后再试'
+            : statusCode >= 500
+              ? '模型服务异常，请稍后重试'
+              : err.message || '调用模型失败';
+      if (res.headersSent) {
+        sendSse({ type: 'error', error: message });
+        return res.end();
+      }
+      return res.status(statusCode).json({ error: message, detail: err?.response?.data || err?.message });
+    }
+    return;
+  }
+
+  try {
+    const completion = await callDeepSeek({ messages, stream: false, enableThinking, responseFormat });
+    const message = completion?.choices?.[0]?.message || {};
+    const rawContent = message.content ?? '';
+    if (taskRequiresJson(task)) {
+      const parsed = parseJsonFallback(rawContent);
+      return res.json(parsed);
+    }
+    return res.json({ content: rawContent });
+  } catch (err) {
+    const statusCode = err?.status || err?.statusCode || err?.response?.status || 500;
+    const message =
+      statusCode === 401
+        ? '鉴权失败：请检查 MODELSCOPE_TOKEN'
+        : statusCode === 429
+          ? '请求过于频繁或额度不足，请稍后再试'
+          : statusCode >= 500
+            ? '模型服务异常，请稍后重试'
+            : err.message || '调用模型失败';
+    return res.status(statusCode).json({ error: message, detail: err?.response?.data || err?.message });
+  }
+});
 
 // Seed sample data for QA & forum
 const seedData = () => {

@@ -3,6 +3,7 @@ import { Card } from '../design-system/Card';
 import { Button } from '../design-system/Button';
 import { ChatBubble } from '../design-system/ChatBubble';
 import { Send, Sparkles, BookOpen, HelpCircle, Mic, MicOff, Link2, Clock, Video, Phone, ScreenShare } from 'lucide-react';
+import { AiPanel } from '../AiPanel';
 
 interface AIChatProps {
   onNavigate: (page: string) => void;
@@ -237,6 +238,7 @@ export function AIChat({ onNavigate }: AIChatProps) {
           
           {/* Sidebar */}
           <div className="space-y-6">
+            <AiPanel />
             {/* Quick Questions */}
             <Card className="p-6">
               <div className="flex items-center gap-2 mb-4">
