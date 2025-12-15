@@ -48,8 +48,8 @@ export function Navigation({ currentPage, onNavigate, userRole = 'student', curr
   return (
     <>
       {/* Desktop Navigation */}
-      <nav className="hidden lg:block bg-white border-b border-[#E9ECEF] sticky top-0 z-50">
-        <div className="container-custom py-3">
+      <nav className="hidden lg:block bg-white border-b border-[#E9ECEF] sticky top-0 z-50" style={{ paddingTop: '16px' }}>
+        <div className="container-custom py-4">
           <div className="flex items-center justify-between">
             {/* Logo */}
             <div
@@ -62,7 +62,7 @@ export function Navigation({ currentPage, onNavigate, userRole = 'student', curr
               <div className="flex flex-col" style={{ transform: 'translateY(2px)', lineHeight: 1.15 }}>
                 <p
                   className="text-sm md:text-base font-semibold text-[#212529] whitespace-nowrap"
-                  style={{ lineHeight: 1.15, margin: 0, outline: '1px solid red' }}
+                  style={{ lineHeight: 1.15, margin: 0 }}
                 >
                   知域 · AI 智能教学系统
                 </p>
@@ -135,8 +135,8 @@ export function Navigation({ currentPage, onNavigate, userRole = 'student', curr
       </nav>
       
       {/* Mobile Navigation */}
-      <nav className="lg:hidden bg-white border-b border-[#E9ECEF] sticky top-0 z-50">
-        <div className="flex items-center justify-between px-4 py-3">
+      <nav className="lg:hidden bg-white border-b border-[#E9ECEF] sticky top-0 z-50" style={{ paddingTop: '16px' }}>
+        <div className="flex items-center justify-between px-4 py-4">
           <div
             className="flex items-center gap-2"
             onClick={() => onNavigate(userRole === 'teacher' ? 'teacher-dashboard' : userRole === 'assistant' ? 'ai-chat' : 'student-dashboard')}
@@ -146,7 +146,7 @@ export function Navigation({ currentPage, onNavigate, userRole = 'student', curr
             </div>
             <span
               className="text-sm font-semibold whitespace-nowrap"
-              style={{ marginTop: '2px', lineHeight: 1.2, outline: '1px solid red', paddingInline: '2px' }}
+              style={{ marginTop: '2px', lineHeight: 1.2 }}
             >
               知域 · AI 智能教学系统
             </span>
