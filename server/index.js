@@ -6,6 +6,7 @@ const { Server } = require('socket.io');
 const { LowSync, JSONFileSync } = require('lowdb');
 const path = require('path');
 const { OpenAI } = require('openai');
+const PptxGenJS = require('pptxgenjs');
 
 const app = express();
 const server = http.createServer(app);
@@ -174,6 +175,117 @@ app.post('/api/ai', async (req, res) => {
       return res.json(parsed);
     }
     return res.json({ content: rawContent });
+  } catch (err) {
+    const statusCode = err?.status || err?.statusCode || err?.response?.status || 500;
+    const message =
+      statusCode === 401
+        ? '鉴权失败：请检查 MODELSCOPE_TOKEN'
+        : statusCode === 429
+          ? '请求过于频繁或额度不足，请稍后再试'
+          : statusCode >= 500
+            ? '模型服务异常，请稍后重试'
+            : err.message || '调用模型失败';
+    return res.status(statusCode).json({ error: message, detail: err?.response?.data || err?.message });
+  }
+});
+
+const pptSystemPrompt = `
+你是教学课件生成助手。请严格输出 JSON，不要多余文字。
+JSON 结构示例：
+{
+  "title": "课程主题",
+  "subtitle": "副标题或场景/受众",
+  "slides": [
+    {
+      "type": "content",
+      "title": "本节标题",
+      "bullets": ["要点1","要点2","要点3"],
+      "speakerNotes": "讲解提纲",
+      "imagePrompt": "配图提示"
+    }
+  ]
+}
+要求：
+- 生成 6-12 页内容（含封面），每页 3-6 条要点
+- 不要出现 Markdown、不要额外说明
+- 仅输出 JSON。`;
+
+app.post('/api/ppt', async (req, res) => {
+  const { text, audience, duration, style } = req.body || {};
+  if (!text || typeof text !== 'string') {
+    return res.status(400).json({ error: 'text is required' });
+  }
+  const messages = [
+    { role: 'system', content: pptSystemPrompt },
+    {
+      role: 'user',
+      content: `内容:\n${text}\n受众:${audience || '未指定'}\n时长:${duration || '未指定'}\n风格:${style || 'modern'}`
+    }
+  ];
+  try {
+    const completion = await callDeepSeek({
+      messages,
+      stream: false,
+      enableThinking: false,
+      responseFormat: { type: 'json_object' }
+    });
+    const rawContent = completion?.choices?.[0]?.message?.content || '';
+    const parsed = parseJsonFallback(rawContent);
+    const data = parsed.data || {};
+    if (!data.slides || !Array.isArray(data.slides) || !data.slides.length) {
+      return res.status(500).json({ error: '模型未返回有效的幻灯片结构', detail: parsed.error || parsed.raw });
+    }
+
+    const pptx = new PptxGenJS();
+    pptx.layout = 'LAYOUT_16x9';
+
+    // Cover
+    const cover = pptx.addSlide();
+    cover.background = { color: 'FFFFFF' };
+    cover.addText(data.title || 'AI 生成课件', {
+      x: 0.7,
+      y: 2,
+      fontSize: 36,
+      bold: true,
+      color: '2F3E9E'
+    });
+    cover.addText(data.subtitle || audience || '', { x: 0.8, y: 3, fontSize: 20, color: '555555' });
+
+    // Content slides
+    data.slides.slice(0, 20).forEach((sl, idx) => {
+      const s = pptx.addSlide();
+      s.background = { color: 'FFFFFF' };
+      s.addText(sl.title || `第 ${idx + 1} 页`, {
+        x: 0.7,
+        y: 0.6,
+        fontSize: 26,
+        bold: true,
+        color: '1F2937'
+      });
+      const bullets = (sl.bullets || []).slice(0, 6);
+      const bulletText = bullets.length ? bullets.map((b) => `• ${b}`).join('\n') : '• 待补充要点';
+      s.addText(bulletText, {
+        x: 0.9,
+        y: 1.4,
+        fontSize: 18,
+        color: '374151',
+        lineSpacing: 24
+      });
+      if (sl.speakerNotes) {
+        s.addNotes(sl.speakerNotes);
+      }
+    });
+
+    const buffer = await pptx.write('nodebuffer');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="AI-PPT-${Date.now()}.pptx"`
+    );
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+    );
+    return res.send(Buffer.from(buffer));
   } catch (err) {
     const statusCode = err?.status || err?.statusCode || err?.response?.status || 500;
     const message =
