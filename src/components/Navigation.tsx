@@ -59,11 +59,17 @@ export function Navigation({ currentPage, onNavigate, userRole = 'student', curr
               <div className="w-10 h-10 bg-gradient-to-br from-[#4C6EF5] to-[#845EF7] rounded-lg flex items-center justify-center">
                 <Sparkles className="w-6 h-6 text-white" />
               </div>
-              <div className="flex flex-col" style={{ marginTop: '4px', lineHeight: 1.2 }}>
-                <p className="text-sm md:text-base font-semibold text-[#212529] whitespace-nowrap" style={{ lineHeight: 1.2 }}>
+              <div className="flex flex-col" style={{ transform: 'translateY(2px)', lineHeight: 1.15 }}>
+                <p
+                  className="text-sm md:text-base font-semibold text-[#212529] whitespace-nowrap"
+                  style={{ lineHeight: 1.15, margin: 0, outline: '1px solid red' }}
+                >
                   知域 · AI 智能教学系统
                 </p>
-                <p className="text-xs text-[#ADB5BD] whitespace-nowrap" style={{ marginTop: '2px', lineHeight: 1.15 }}>
+                <p
+                  className="text-xs text-[#ADB5BD] whitespace-nowrap"
+                  style={{ marginTop: '2px', lineHeight: 1.05, marginBottom: 0 }}
+                >
                   {userRole === 'teacher' ? '教师中心' : userRole === 'assistant' ? 'AI 助教' : '智慧学习平台'}
                 </p>
               </div>
@@ -140,7 +146,7 @@ export function Navigation({ currentPage, onNavigate, userRole = 'student', curr
             </div>
             <span
               className="text-sm font-semibold whitespace-nowrap"
-              style={{ marginTop: '2px', lineHeight: 1.2 }}
+              style={{ marginTop: '2px', lineHeight: 1.2, outline: '1px solid red', paddingInline: '2px' }}
             >
               知域 · AI 智能教学系统
             </span>
