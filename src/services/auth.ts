@@ -152,21 +152,27 @@ export function registerUser(input: {
   return newUser;
 }
 
-export function loginWithPassword(userId: string, password: string): UserProfile {
+export function loginWithPassword(userId: string, password: string, expectedRole?: UserRole): UserProfile {
   const users = getUsers();
   const user = users.find((item) => item.userId === userId && item.password === password);
   if (!user) {
     throw new Error('账号或密码错误');
   }
+  if (expectedRole && user.role !== expectedRole) {
+    throw new Error('角色不匹配，请确认选择了正确的登录入口');
+  }
   saveSession(user.userId);
   return user;
 }
 
-export function loginWithFace(userId: string): UserProfile {
+export function loginWithFace(userId: string, expectedRole?: UserRole): UserProfile {
   const users = getUsers();
   const user = users.find((item) => item.userId === userId);
   if (!user) {
     throw new Error('未找到账号，请先注册');
+  }
+  if (expectedRole && user.role !== expectedRole) {
+    throw new Error('角色不匹配，请确认选择了正确的登录入口');
   }
   if (!user.faceBound) {
     throw new Error('该账号未绑定人脸识别');

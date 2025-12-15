@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Input } from '../design-system/Input';
 import { Button } from '../design-system/Button';
 import { Scan, ArrowRight } from 'lucide-react';
-import { UserProfile, loginWithFace, loginWithPassword } from '../../services/auth';
+import { UserProfile, UserRole, loginWithFace, loginWithPassword } from '../../services/auth';
 
 interface LoginProps {
   onNavigate: (page: string) => void;
@@ -12,6 +12,7 @@ interface LoginProps {
 export function Login({ onNavigate, onLoginSuccess }: LoginProps) {
   const [studentId, setStudentId] = useState('');
   const [password, setPassword] = useState('');
+  const [selectedRole, setSelectedRole] = useState<UserRole>('student');
   const [currentSlide, setCurrentSlide] = useState(0);
   const [error, setError] = useState('');
   const [faceMessage, setFaceMessage] = useState('');
@@ -75,12 +76,16 @@ export function Login({ onNavigate, onLoginSuccess }: LoginProps) {
   };
   
   const handleLogin = () => {
+    if (!selectedRole) {
+      setError('请先选择登录角色');
+      return;
+    }
     if (!studentId || !password) {
       setError('请输入学号/工号和密码');
       return;
     }
     try {
-      const user = loginWithPassword(studentId.trim(), password);
+      const user = loginWithPassword(studentId.trim(), password, selectedRole);
       setError('');
       setFaceMessage('');
       onLoginSuccess(user);
@@ -90,12 +95,16 @@ export function Login({ onNavigate, onLoginSuccess }: LoginProps) {
   };
 
   const handleFaceLogin = () => {
+    if (!selectedRole) {
+      setError('请先选择登录角色');
+      return;
+    }
     if (!studentId) {
       setError('请输入学号/工号以进行人脸验证');
       return;
     }
     try {
-      const user = loginWithFace(studentId.trim());
+      const user = loginWithFace(studentId.trim(), selectedRole);
       setError('');
       setFaceMessage('人脸验证通过，已为您快捷登录');
       onLoginSuccess(user);
@@ -115,6 +124,26 @@ export function Login({ onNavigate, onLoginSuccess }: LoginProps) {
               知域 · AI 智能教学系统
             </h1>
             <p className="text-[#ADB5BD] text-base">Log in to the AI-powered learning platform</p>
+          </div>
+
+          <div className="mb-4">
+            <p className="text-sm text-[#495057] mb-2">请选择登录角色</p>
+            <div className="grid grid-cols-2 gap-2">
+              {(['student', 'teacher'] as UserRole[]).map((role) => (
+                <button
+                  key={role}
+                  type="button"
+                  className={`rounded-lg border-2 px-3 py-2 text-sm transition-all ${
+                    selectedRole === role
+                      ? 'border-[#4C6EF5] bg-[#EDF2FF] text-[#364FC7]'
+                      : 'border-[#E9ECEF] hover:border-[#CED4DA] text-[#495057]'
+                  }`}
+                  onClick={() => setSelectedRole(role)}
+                >
+                  {role === 'student' ? '学生登录' : '教师登录'}
+                </button>
+              ))}
+            </div>
           </div>
           
           <div className="space-y-4 mb-6">
