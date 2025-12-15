@@ -123,9 +123,25 @@ export function StudentDashboard({ onNavigate, currentUser, onSelectCourse }: St
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {recommendedCourses.map((course) => (
               <Card key={course.id} className="overflow-hidden" onClick={() => openCourse(course.id)}>
-                <div className="h-40 bg-gradient-to-br from-[#4C6EF5] to-[#845EF7] flex items-center justify-center">
-                  <BookOpen className="w-16 h-16 text-white opacity-50" />
-                </div>
+                {course.thumbnail ? (
+                  <div className="h-40 bg-[#F8F9FA]">
+                    <img
+                      src={course.thumbnail}
+                      alt={course.title}
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        // fallback到纯色背景
+                        (e.currentTarget as HTMLImageElement).style.display = 'none';
+                        (e.currentTarget.parentElement as HTMLElement).style.background =
+                          'linear-gradient(135deg, #4C6EF5, #845EF7)';
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <div className="h-40 bg-gradient-to-br from-[#4C6EF5] to-[#845EF7] flex items-center justify-center">
+                    <BookOpen className="w-16 h-16 text-white opacity-50" />
+                  </div>
+                )}
                 <div className="p-5">
                   <h4 className="mb-2">{course.title}</h4>
                   <p className="text-sm text-[#ADB5BD] mb-3">讲师：{course.instructor}</p>

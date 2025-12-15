@@ -60,7 +60,7 @@ export function Navigation({ currentPage, onNavigate, userRole = 'student', curr
               onClick={() => onNavigate(userRole === 'teacher' ? 'teacher-dashboard' : userRole === 'assistant' ? 'ai-chat' : 'student-dashboard')}
             >
               <div className="w-10 h-10 bg-gradient-to-br from-[#4C6EF5] to-[#845EF7] rounded-lg flex items-center justify-center">
-                <Sparkles className="w-6 h-6 text-white" />
+                <img src="/image/icon/1.png" alt="logo" className="w-6 h-6 text-white" />
               </div>
               <div className="flex flex-col" style={{ transform: 'translateY(2px)', lineHeight: 1.15 }}>
                 <p
@@ -148,7 +148,7 @@ export function Navigation({ currentPage, onNavigate, userRole = 'student', curr
             onClick={() => onNavigate(userRole === 'teacher' ? 'teacher-dashboard' : userRole === 'assistant' ? 'ai-chat' : 'student-dashboard')}
           >
             <div className="w-8 h-8 bg-gradient-to-br from-[#4C6EF5] to-[#845EF7] rounded-lg flex items-center justify-center">
-              <Sparkles className="w-5 h-5 text-white" />
+              <img src="/image/icon/1.png" alt="logo" className="w-5 h-5 text-white" />
             </div>
             <span
               className="text-sm font-semibold whitespace-nowrap"
