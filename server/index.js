@@ -106,12 +106,18 @@ const callDeepSeek = async ({ messages, stream = false, enableThinking = false, 
 
 const sanitizeFilePart = (name) => {
   if (!name || typeof name !== 'string') return 'AI课件';
-  return name.replace(/[\\/:*?"<>|]/g, '_').slice(0, 40) || 'AI课件';
+  return name.replace(/[\r\n\t]/g, ' ').replace(/[\\/:*?"<>|]/g, '_').trim().slice(0, 40) || 'AI课件';
 };
 
 const sanitizeFileName = (name) => {
   if (!name || typeof name !== 'string') return 'AI课件.pptx';
-  return name.replace(/[\\/:*?"<>|]/g, '_').slice(0, 60);
+  return name.replace(/[\r\n\t]/g, ' ').replace(/[\\/:*?"<>|]/g, '_').trim().slice(0, 60);
+};
+
+const buildDisposition = (filename) => {
+  const asciiName = filename.replace(/[^\x20-\x7E]/g, '_') || 'AI_Kejian.pptx';
+  const encoded = encodeURIComponent(filename);
+  return `attachment; filename="${asciiName}"; filename*=UTF-8''${encoded}`;
 };
 
 const normalizeStr = (str) =>
@@ -187,6 +193,28 @@ const applyPageRange = (slides, pageRange) => {
 
 // Helpers
 const genId = () => Math.random().toString(36).slice(2, 10);
+const getValidPageRange = (pageRange) =>
+  pageRange &&
+  typeof pageRange.min === 'number' &&
+  typeof pageRange.max === 'number' &&
+  pageRange.min >= 3 &&
+  pageRange.max <= 30 &&
+  pageRange.min <= pageRange.max
+    ? { min: pageRange.min, max: pageRange.max }
+    : null;
+
+const buildErrorPayload = (err) => {
+  const statusCode = err?.status || err?.statusCode || err?.response?.status || 500;
+  const message =
+    statusCode === 401
+      ? '鉴权失败：请检查 MODELSCOPE_TOKEN'
+      : statusCode === 429
+        ? '请求过于频繁或额度不足，请稍后再试'
+        : statusCode >= 500
+          ? '模型服务异常，请稍后重试'
+          : err?.message || '调用模型失败';
+  return { statusCode, message, detail: err?.response?.data || err?.message };
+};
 
 app.post('/api/ai', async (req, res) => {
   const { task, payload, stream: streamFlag, enable_thinking } = req.body || {};
@@ -293,23 +321,25 @@ JSON 结构示例：
 - bullets 不能与 title 完全相同，且不要出现“本页标题/标题/内容”等提示词。
 - 不要出现 Markdown、不要额外说明，仅输出 JSON。`;
 
-app.post('/api/ppt', async (req, res) => {
-  const { text, audience, duration, style, pageRange } = req.body || {};
-  if (!text || typeof text !== 'string') {
-    return res.status(400).json({ error: 'text is required' });
-  }
-  const hasRange =
-    pageRange &&
-    typeof pageRange.min === 'number' &&
-    typeof pageRange.max === 'number' &&
-    pageRange.min >= 3 &&
-    pageRange.max <= 30 &&
-    pageRange.min <= pageRange.max;
-
-  const rangeText = hasRange
+const buildRangeText = (pageRange) =>
+  pageRange
     ? `目标页数区间：${pageRange.min} - ${pageRange.max} 页。内容足够长则靠近上限，较短则靠近下限，但必须落在区间内。`
     : '默认页数区间 6-12 页，可根据内容长短适当增减。';
 
+const normalizeOutline = ({ rawOutline = {}, pageRange, fallbackTitle, fallbackSubtitle }) => {
+  const slides = cleanSlides(rawOutline.slides || []);
+  return {
+    title: rawOutline.title || fallbackTitle || 'AI 生成课件',
+    subtitle: rawOutline.subtitle || fallbackSubtitle || '',
+    slides: applyPageRange(slides, pageRange)
+  };
+};
+
+const generateOutline = async ({ text, audience, duration, style, pageRange }) => {
+  const validRange = getValidPageRange(pageRange);
+  const rangeText = buildRangeText(validRange);
+  const firstLine = text.split('\n').map((l) => l.trim()).find((l) => l.length > 0) || 'AI 生成课件';
+  const fallbackSubtitle = [audience, duration].filter(Boolean).join(' · ');
   const messages = [
     { role: 'system', content: pptSystemPrompt },
     {
@@ -317,93 +347,163 @@ app.post('/api/ppt', async (req, res) => {
       content: `内容:\n${text}\n受众:${audience || '未指定'}\n时长:${duration || '未指定'}\n风格:${style || 'modern'}\n${rangeText}`
     }
   ];
-  try {
-    const completion = await callDeepSeek({
-      messages,
-      stream: false,
-      enableThinking: false,
-      responseFormat: { type: 'json_object' }
-    });
-    const rawContent = completion?.choices?.[0]?.message?.content || '';
-    const parsed = parseJsonFallback(rawContent);
-    const data = parsed.data || {};
-    if (!data.slides || !Array.isArray(data.slides) || !data.slides.length) {
-      return res.status(500).json({ error: '模型未返回有效的幻灯片结构', detail: parsed.error || parsed.raw });
-    }
+  const completion = await callDeepSeek({
+    messages,
+    stream: false,
+    enableThinking: false,
+    responseFormat: { type: 'json_object' }
+  });
+  const rawContent = completion?.choices?.[0]?.message?.content || '';
+  const parsed = parseJsonFallback(rawContent);
+  if (!parsed.data || !Array.isArray(parsed.data.slides) || !parsed.data.slides.length) {
+    const error = new Error('模型未返回有效的幻灯片结构');
+    error.detail = parsed.error || parsed.raw;
+    throw error;
+  }
+  const outline = normalizeOutline({
+    rawOutline: parsed.data,
+    pageRange: validRange,
+    fallbackTitle: firstLine,
+    fallbackSubtitle
+  });
+  return { outline, parsed };
+};
 
-    // derive course name
-    const firstLine = text.split('\n').map((l) => l.trim()).find((l) => l.length > 0) || '';
-    const courseName = sanitizeFilePart(data.title || firstLine || 'AI课件');
+const themes = {
+  modern: { title: '2F3E9E', subtitle: '4C6EF5', text: '1F2937', accent: '845EF7' },
+  academic: { title: '0B7285', subtitle: '1C7ED6', text: '0B7285', accent: '15AABF' },
+  vibrant: { title: 'C92A2A', subtitle: 'F76707', text: '2D1F18', accent: 'E8590C' },
+  simple: { title: '1F2937', subtitle: '4B5563', text: '111827', accent: '6B7280' }
+};
 
-    // clean slides
-    const cleanedSlides = cleanSlides(data.slides);
+const getTheme = (style) => themes[style] || themes.modern;
 
-    // apply page range constraints
-    const slidesForUse = applyPageRange(cleanedSlides, pageRange);
+const buildPptxFromOutline = async ({ outline, style, courseName, filenameHint }) => {
+  const theme = getTheme(style);
+  const safeOutline = {
+    title: outline?.title || 'AI 生成课件',
+    subtitle: outline?.subtitle || '',
+    slides: cleanSlides(outline?.slides || [])
+  };
 
-    const pptx = new PptxGenJS();
-    pptx.layout = 'LAYOUT_16x9';
+  const pptx = new PptxGenJS();
+  pptx.layout = 'LAYOUT_16x9';
 
-    // Cover
-    const cover = pptx.addSlide();
-    cover.background = { color: 'FFFFFF' };
-    cover.addText(data.title || firstLine || 'AI 生成课件', {
+  const cover = pptx.addSlide();
+  cover.background = { color: 'FFFFFF' };
+  cover.addText(safeOutline.title, {
+    x: 0.7,
+    y: 1.5,
+    fontSize: 36,
+    bold: true,
+    color: theme.title
+  });
+  if (safeOutline.subtitle) {
+    cover.addText(safeOutline.subtitle, { x: 0.8, y: 2.5, fontSize: 20, color: theme.subtitle });
+  }
+
+  safeOutline.slides.forEach((sl, idx) => {
+    const s = pptx.addSlide();
+    s.background = { color: 'FFFFFF' };
+    s.addText(sl.title || `第 ${idx + 1} 页`, {
       x: 0.7,
-      y: 1.6,
-      fontSize: 36,
+      y: 0.5,
+      fontSize: 32,
       bold: true,
-      color: '2F3E9E'
+      color: theme.title
     });
-    cover.addText(data.subtitle || audience || '', { x: 0.8, y: 2.6, fontSize: 20, color: '555555' });
-
-    // Content slides
-    slidesForUse.forEach((sl, idx) => {
-      const s = pptx.addSlide();
-      s.background = { color: 'FFFFFF' };
-      s.addText(sl.title || `第 ${idx + 1} 页`, {
-        x: 0.7,
-        y: 0.4,
-        fontSize: 32,
-        bold: true,
-        color: '1F2937'
-      });
-      const bullets = (sl.bullets || []).slice(0, 6);
-      const bulletText = bullets.length ? bullets.map((b) => `• ${b}`).join('\n') : '• 核心概念\n• 典型应用/例题';
-      s.addText(bulletText, {
-        x: 0.9,
-        y: 1.6,
-        fontSize: 18,
-        color: '374151',
-        lineSpacing: 26
-      });
-      if (sl.speakerNotes) {
-        s.addNotes(sl.speakerNotes);
-      }
+    const bullets = (sl.bullets || []).slice(0, 6);
+    const bulletText = bullets.length ? bullets.map((b) => `• ${b}`).join('\n') : '• 核心概念\n• 典型应用/例题';
+    s.addText(bulletText, {
+      x: 0.9,
+      y: 1.6,
+      fontSize: 18,
+      color: theme.text,
+      lineSpacing: 26
     });
+    if (sl.speakerNotes) {
+      s.addNotes(sl.speakerNotes);
+    }
+  });
 
-    const buffer = await pptx.write('nodebuffer');
-    const dateStr = dayjs().format('MMDD');
-    const filename = sanitizeFileName(`AI课件_${courseName}_${dateStr}.pptx`);
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="${filename}"`
-    );
+  const buffer = await pptx.write('nodebuffer');
+  const dateStr = dayjs().format('MMDD');
+  const coursePart = sanitizeFilePart(filenameHint || courseName || safeOutline.title);
+  const filename = sanitizeFileName(`AI课件_${coursePart}_${dateStr}.pptx`);
+  return { buffer, filename };
+};
+
+app.post('/api/ppt/outline', async (req, res) => {
+  const { text, audience, duration, style, pageRange } = req.body || {};
+  if (!text || typeof text !== 'string') {
+    return res.status(400).json({ error: 'text is required' });
+  }
+  try {
+    const { outline } = await generateOutline({ text, audience, duration, style, pageRange });
+    return res.json({ outline });
+  } catch (err) {
+    const { statusCode, message, detail } = buildErrorPayload(err);
+    return res.status(statusCode).json({ error: message, detail: err?.detail || detail });
+  }
+});
+
+app.post('/api/ppt/build', async (req, res) => {
+  const { outline, courseName, style, filenameHint, pageRange } = req.body || {};
+  if (!outline || typeof outline !== 'object') {
+    return res.status(400).json({ error: 'outline is required' });
+  }
+  const normalizedOutline = normalizeOutline({
+    rawOutline: outline,
+    pageRange: getValidPageRange(pageRange),
+    fallbackTitle: outline?.title,
+    fallbackSubtitle: outline?.subtitle
+  });
+  if (!normalizedOutline.slides || !normalizedOutline.slides.length) {
+    return res.status(400).json({ error: 'outline.slides is required' });
+  }
+  try {
+    const { buffer, filename } = await buildPptxFromOutline({
+      outline: normalizedOutline,
+      style,
+      courseName: courseName || normalizedOutline.title,
+      filenameHint
+    });
+    res.setHeader('Content-Disposition', buildDisposition(filename));
     res.setHeader(
       'Content-Type',
       'application/vnd.openxmlformats-officedocument.presentationml.presentation'
     );
     return res.send(Buffer.from(buffer));
   } catch (err) {
-    const statusCode = err?.status || err?.statusCode || err?.response?.status || 500;
-    const message =
-      statusCode === 401
-        ? '鉴权失败：请检查 MODELSCOPE_TOKEN'
-        : statusCode === 429
-          ? '请求过于频繁或额度不足，请稍后再试'
-          : statusCode >= 500
-            ? '模型服务异常，请稍后重试'
-            : err.message || '调用模型失败';
-    return res.status(statusCode).json({ error: message, detail: err?.response?.data || err?.message });
+    console.error('PPT build failed', err);
+    const statusCode = err?.status || err?.statusCode || 500;
+    const message = err?.message || '生成 PPT 失败，请稍后重试';
+    return res.status(statusCode).json({ error: message, detail: err?.detail || err?.stack || err });
+  }
+});
+
+// Backward-compatible单步生成
+app.post('/api/ppt', async (req, res) => {
+  const { text, audience, duration, style, pageRange } = req.body || {};
+  if (!text || typeof text !== 'string') {
+    return res.status(400).json({ error: 'text is required' });
+  }
+  try {
+    const { outline } = await generateOutline({ text, audience, duration, style, pageRange });
+    const { buffer, filename } = await buildPptxFromOutline({
+      outline,
+      style,
+      courseName: outline.title
+    });
+    res.setHeader('Content-Disposition', buildDisposition(filename));
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+    );
+    return res.send(Buffer.from(buffer));
+  } catch (err) {
+    const { statusCode, message, detail } = buildErrorPayload(err);
+    return res.status(statusCode).json({ error: message, detail: err?.detail || detail });
   }
 });
 
