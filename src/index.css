@@ -2567,3 +2567,56 @@ small {
     transform: translateY(0) scale(1);
   }
 }
+
+/* Rest Room extras */
+.rest-kenburns {
+  animation: rest-kenburns 32s ease-in-out infinite alternate;
+}
+
+.rest-glow {
+  animation: rest-glow 14s ease-in-out infinite;
+}
+
+.rest-glass {
+  background: rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  box-shadow: 0 15px 45px rgba(0, 0, 0, 0.2);
+  border-radius: 16px;
+}
+
+.rest-card {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.rest-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+.rest-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 999px;
+}
+
+@keyframes rest-kenburns {
+  0% {
+    transform: scale(1) translate3d(0, 0, 0);
+  }
+  100% {
+    transform: scale(1.08) translate3d(-2%, -2%, 0);
+  }
+}
+
+@keyframes rest-glow {
+  0% {
+    opacity: 0.18;
+  }
+  50% {
+    opacity: 0.3;
+  }
+  100% {
+    opacity: 0.18;
+  }
+}

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Home, BookOpen, MessageCircle, FileText, BarChart3, User, Settings, Menu, X, Sparkles, LogOut, Shield, Users } from 'lucide-react';
+import { Home, BookOpen, MessageCircle, FileText, BarChart3, User, Settings, Menu, X, Sparkles, LogOut, Shield, Users, MoonStar } from 'lucide-react';
 import { UserProfile, UserRole } from '../services/auth';
 
 interface NavigationProps {
@@ -19,7 +19,8 @@ export function Navigation({ currentPage, onNavigate, userRole = 'student', curr
     { id: 'ai-chat', label: 'AI助教', icon: <MessageCircle className="w-5 h-5" /> },
     { id: 'test-center', label: '测验', icon: <FileText className="w-5 h-5" /> },
     { id: 'learning-analytics', label: '学习画像', icon: <BarChart3 className="w-5 h-5" /> },
-    { id: 'study-hub', label: '在线自习室', icon: <Users className="w-5 h-5" /> }
+    { id: 'study-hub', label: '共享学海', icon: <Users className="w-5 h-5" /> },
+    { id: 'rest-room', label: '冥想自习室', icon: <MoonStar className="w-5 h-5" /> }
   ];
   
   const teacherNav = [
@@ -28,7 +29,8 @@ export function Navigation({ currentPage, onNavigate, userRole = 'student', curr
     { id: 'ppt-to-video', label: '生成视频', icon: <Sparkles className="w-5 h-5" /> },
     { id: 'course-list', label: '课程管理', icon: <BookOpen className="w-5 h-5" /> },
     { id: 'test-center', label: 'AI出题', icon: <FileText className="w-5 h-5" /> },
-    { id: 'study-hub', label: '在线自习室', icon: <Users className="w-5 h-5" /> }
+    { id: 'study-hub', label: '共享学海', icon: <Users className="w-5 h-5" /> },
+    { id: 'rest-room', label: '冥想自习室', icon: <MoonStar className="w-5 h-5" /> }
   ];
 
   const assistantNav = [
@@ -79,11 +81,11 @@ export function Navigation({ currentPage, onNavigate, userRole = 'student', curr
             </div>
             
             {/* Nav Items */}
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-4 flex-nowrap">
               {navItems.map((item) => (
                 <button
                   key={item.id}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all ${
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all whitespace-nowrap ${
                     currentPage === item.id
                       ? 'bg-[#EDF2FF] text-[#4C6EF5]'
                       : 'text-[#212529] hover:bg-[#F8F9FA]'

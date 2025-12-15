@@ -24,6 +24,7 @@ import { Profile } from './components/pages/Profile';
 import { Settings } from './components/pages/Settings';
 import { FlowChart } from './components/pages/FlowChart';
 import { StudyHub } from './components/pages/StudyHub';
+import { RestRoom } from './components/pages/RestRoom';
 import { useRightClickSwipeBack } from './hooks/useRightClickSwipeBack';
 
 export default function App() {
@@ -143,6 +144,8 @@ export default function App() {
         return <LearningAnalytics {...pageProps} currentUser={currentUser} />;
       case 'study-hub':
         return <StudyHub />;
+      case 'rest-room':
+        return <RestRoom {...pageProps} />;
       case 'profile':
         return <Profile {...pageProps} currentUser={currentUser} onProfileUpdate={setCurrentUser} />;
       case 'settings':

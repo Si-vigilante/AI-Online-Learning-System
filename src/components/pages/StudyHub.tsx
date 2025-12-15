@@ -1,27 +1,17 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Card } from '../design-system/Card';
 import { Button } from '../design-system/Button';
 import { Input } from '../design-system/Input';
 import { Tabs } from '../design-system/Tabs';
-import { getSocket } from '../../lib/socket';
 import { apiDelete, apiGet, apiPost } from '../../lib/api';
-import { Users, MessageCircle, Check, Loader2 } from 'lucide-react';
-
-type Message = { id: string; name: string; text: string; ts: number };
-type RoomUser = { name: string; status: 'focus' | 'break' };
+import { MessageCircle, Check, Loader2 } from 'lucide-react';
 
 export function StudyHub() {
-  const [activeTab, setActiveTab] = useState('room');
-  const [nickname, setNickname] = useState('');
-  const [roomIdInput, setRoomIdInput] = useState('');
-  const [roomTitle, setRoomTitle] = useState('');
-  const [roomDesc, setRoomDesc] = useState('');
-  const [joinId, setJoinId] = useState('');
-  const [currentRoom, setCurrentRoom] = useState<{ id: string; title: string }>({ id: '', title: '' });
-  const [roomUsers, setRoomUsers] = useState<RoomUser[]>([]);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [chatText, setChatText] = useState('');
-  const [myStatus, setMyStatus] = useState<'focus' | 'break'>('focus');
+  const [activeTab, setActiveTab] = useState('forum');
+  const [nickname, setNickname] = useState(() => {
+    const stored = localStorage.getItem('studyhub-name');
+    return stored || `User-${Math.floor(Math.random() * 9000 + 1000)}`;
+  });
   const [questions, setQuestions] = useState<any[]>([]);
   const [posts, setPosts] = useState<any[]>([]);
   const [loadingQA, setLoadingQA] = useState(false);
@@ -33,49 +23,6 @@ export function StudyHub() {
   const [answerText, setAnswerText] = useState('');
   const [newPost, setNewPost] = useState({ title: '', content: '' });
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
-
-  const socket = useMemo(() => getSocket(), []);
-
-  useEffect(() => {
-    const stored = localStorage.getItem('studyhub-name');
-    const name = stored || `User-${Math.floor(Math.random() * 9000 + 1000)}`;
-    setNickname(name);
-    socket.on('room:users', ({ users }) => setRoomUsers(users));
-    socket.on('room:message', ({ message }) => setMessages((prev) => [...prev, message]));
-    return () => {
-      socket.off('room:users');
-      socket.off('room:message');
-    };
-  }, [socket]);
-
-  const joinRoom = (id: string, title?: string) => {
-    if (!id || !nickname) return;
-    localStorage.setItem('studyhub-name', nickname);
-    setCurrentRoom({ id, title: title || '自习室' });
-    setMessages([]);
-    socket.emit('room:join', { roomId: id, name: nickname });
-  };
-
-  const leaveRoom = () => {
-    if (!currentRoom.id) return;
-    socket.emit('room:leave', { roomId: currentRoom.id, name: nickname });
-    setCurrentRoom({ id: '', title: '' });
-    setRoomUsers([]);
-    setMessages([]);
-  };
-
-  const sendMessage = () => {
-    if (!chatText.trim() || !currentRoom.id) return;
-    socket.emit('room:message', { roomId: currentRoom.id, name: nickname, text: chatText.trim() });
-    setChatText('');
-  };
-
-  const toggleStatus = () => {
-    if (!currentRoom.id) return;
-    const next = myStatus === 'focus' ? 'break' : 'focus';
-    setMyStatus(next);
-    socket.emit('room:status', { roomId: currentRoom.id, name: nickname, status: next });
-  };
 
   const sampleQuestions = [
     {
@@ -380,115 +327,21 @@ export function StudyHub() {
   };
 
   const tabs = [
-    { key: 'room', label: '自习室', icon: <Users className="w-4 h-4" /> },
     { key: 'qa', label: '互助问答', icon: <MessageCircle className="w-4 h-4" /> },
     { key: 'forum', label: '论坛', icon: <Check className="w-4 h-4" /> }
   ];
-
-  const formatTime = (ts: number) => new Date(ts).toLocaleTimeString();
 
   return (
     <div className="min-h-screen bg-[#F8F9FA]">
       <div className="container-custom py-8">
         <div className="mb-6">
-          <h2 className="mb-1">在线自习室 Study Hub</h2>
-          <p className="text-[#ADB5BD]">实时自习 · 互助问答 · 论坛交流</p>
+          <h2 className="mb-1">学习论坛</h2>
+          <p className="text-[#ADB5BD]">互助问答 · 论坛交流</p>
         </div>
 
         <Card className="p-4 mb-6">
           <Tabs tabs={tabs} activeTab={activeTab} onChange={setActiveTab} />
         </Card>
-
-        {activeTab === 'room' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <Card className="p-6 lg:col-span-2">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                <Input label="昵称" value={nickname} onChange={(e) => setNickname(e.target.value)} />
-                <div className="p-3 bg-[#F8F9FA] rounded-lg text-sm text-[#ADB5BD]">
-                  默认自动保存昵称，跨房间复用
-                </div>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                <Input label="房间名" value={roomTitle} onChange={(e) => setRoomTitle(e.target.value)} />
-                <Input label="房间描述" value={roomDesc} onChange={(e) => setRoomDesc(e.target.value)} />
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="flex items-end gap-3">
-                  <Input label="房间ID（自动生成）" value={roomIdInput} onChange={(e) => setRoomIdInput(e.target.value)} placeholder="留空自动生成" />
-                  <Button
-                    onClick={() => {
-                      const id = roomIdInput || `room-${Math.floor(Math.random() * 9000 + 1000)}`;
-                      joinRoom(id, roomTitle || '自习室');
-                    }}
-                  >
-                    创建并加入
-                  </Button>
-                </div>
-                <div className="flex items-end gap-3">
-                  <Input label="加入房间ID" value={joinId} onChange={(e) => setJoinId(e.target.value)} />
-                  <Button onClick={() => joinRoom(joinId, '自习室')}>加入</Button>
-                </div>
-              </div>
-
-              {currentRoom.id && (
-                <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-4">
-                  <div className="lg:col-span-2">
-                    <div className="flex items-center justify-between mb-3">
-                      <div>
-                        <h4>{currentRoom.title || '自习室'}</h4>
-                        <p className="text-xs text-[#ADB5BD]">房间ID：{currentRoom.id}</p>
-                      </div>
-                      <div className="flex gap-2">
-                        <Button variant="secondary" size="sm" onClick={toggleStatus}>
-                          切换状态：{myStatus === 'focus' ? '专注' : '休息'}
-                        </Button>
-                        <Button variant="ghost" size="sm" onClick={leaveRoom}>退出房间</Button>
-                      </div>
-                    </div>
-                    <div className="h-64 bg-[#F8F9FA] rounded-lg p-4 overflow-y-auto space-y-3 border border-[#E9ECEF]">
-                      {messages.map((msg) => (
-                        <div key={msg.id} className="text-sm">
-                          <span className="text-[#4C6EF5] mr-2">{msg.name}</span>
-                          <span className="text-[#ADB5BD] mr-2">{formatTime(msg.ts)}</span>
-                          <span>{msg.text}</span>
-                        </div>
-                      ))}
-                      {!messages.length && <p className="text-xs text-[#ADB5BD]">暂无消息</p>}
-                    </div>
-                    <div className="flex gap-2 mt-3">
-                      <input
-                        className="flex-1 px-3 py-2 border-2 border-[#E9ECEF] rounded-lg focus:border-[#4C6EF5] outline-none"
-                        placeholder="发送消息..."
-                        value={chatText}
-                        onChange={(e) => setChatText(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-                      />
-                      <Button onClick={sendMessage}>发送</Button>
-                    </div>
-                  </div>
-                  <Card className="p-4">
-                    <div className="flex items-center gap-2 mb-3">
-                      <Users className="w-4 h-4 text-[#4C6EF5]" />
-                      <h5 className="mb-0">在线成员</h5>
-                      <span className="text-xs text-[#ADB5BD]">({roomUsers.length})</span>
-                    </div>
-                    <div className="space-y-2">
-                      {roomUsers.map((u) => (
-                        <div key={u.name + u.status + Math.random()} className="flex items-center justify-between text-sm bg-[#F8F9FA] px-3 py-2 rounded-lg">
-                          <span>{u.name}</span>
-                          <span className={`text-xs px-2 py-1 rounded-full ${u.status === 'focus' ? 'bg-[#E6FCF5] text-[#0CA678]' : 'bg-[#FFF4E6] text-[#E67700]'}`}>
-                            {u.status === 'focus' ? '专注' : '休息'}
-                          </span>
-                        </div>
-                      ))}
-                      {!roomUsers.length && <p className="text-xs text-[#ADB5BD]">暂无成员</p>}
-                    </div>
-                  </Card>
-                </div>
-              )}
-            </Card>
-          </div>
-        )}
 
         {activeTab === 'qa' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
