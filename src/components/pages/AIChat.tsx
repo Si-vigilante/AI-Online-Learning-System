@@ -9,6 +9,7 @@ interface AIChatProps {
 }
 
 export function AIChat({ onNavigate }: AIChatProps) {
+  const apiBase = import.meta.env.VITE_API_BASE || '';
   const [messages, setMessages] = useState<
     { id: number; message: string; sender: 'ai' | 'user'; timestamp: string; thinking?: string; json?: any }[]
   >([
@@ -31,6 +32,10 @@ export function AIChat({ onNavigate }: AIChatProps) {
   const [isSending, setIsSending] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const messageEndRef = useRef<HTMLDivElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+  const [autoScroll, setAutoScroll] = useState(true);
+  const scrollThrottleRef = useRef<number | null>(null);
   const recognitionRef = useRef<any>(null);
   const defaultStreamMap = {
     translate: true,
@@ -82,9 +87,39 @@ export function AIChat({ onNavigate }: AIChatProps) {
     setStream(defaultStreamMap[task]);
   }, [task]);
 
+  const scrollToBottom = () => {
+    if (!autoScroll) return;
+    const list = listRef.current;
+    if (list) {
+      list.scrollTop = list.scrollHeight;
+    } else {
+      messageEndRef.current?.scrollIntoView();
+    }
+  };
+
+  const scrollToBottomThrottled = () => {
+    if (!autoScroll) return;
+    if (scrollThrottleRef.current) return;
+    scrollThrottleRef.current = window.setTimeout(() => {
+      scrollThrottleRef.current = null;
+      scrollToBottom();
+    }, 80);
+  };
+
   useEffect(() => {
-    messageEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    scrollToBottom();
+  }, [messages.length]); // 仅在消息数量变化时自动滚动
+
+  useEffect(() => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    const handleScroll = () => {
+      const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 80;
+      setAutoScroll(atBottom);
+    };
+    el.addEventListener('scroll', handleScroll);
+    return () => el.removeEventListener('scroll', handleScroll);
+  }, []);
 
   const parseSseBuffer = (buffer: string, onPayload: (data: any) => void) => {
     const parts = buffer.split('\n\n');
@@ -154,14 +189,14 @@ export function AIChat({ onNavigate }: AIChatProps) {
       };
 
       if (stream) {
-        const resp = await fetch('/api/ai', {
+        const resp = await fetch(`${apiBase}/api/ai`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body)
         });
         if (!resp.ok) {
           const errData = await resp.json().catch(() => ({}));
-          throw new Error(errData?.error || '请求失败');
+          throw new Error(errData?.error || errData?.detail || '请求失败');
         }
         const reader = resp.body?.getReader();
         if (!reader) throw new Error('读取流失败');
@@ -178,6 +213,7 @@ export function AIChat({ onNavigate }: AIChatProps) {
                   m.id === aiMsgId ? { ...m, thinking: (m.thinking || '') + payload.delta } : m
                 )
               );
+              scrollToBottomThrottled();
             }
             if (payload.type === 'content' && payload.delta) {
               setMessages((prev) =>
@@ -185,6 +221,7 @@ export function AIChat({ onNavigate }: AIChatProps) {
                   m.id === aiMsgId ? { ...m, message: (m.message || '') + payload.delta } : m
                 )
               );
+              scrollToBottomThrottled();
             }
             if (payload.type === 'done') {
               setMessages((prev) =>
@@ -198,6 +235,7 @@ export function AIChat({ onNavigate }: AIChatProps) {
                     : m
                 )
               );
+              scrollToBottom();
             }
             if (payload.type === 'error' && payload.error) {
               throw new Error(payload.error);
@@ -205,14 +243,14 @@ export function AIChat({ onNavigate }: AIChatProps) {
           });
         }
       } else {
-        const resp = await fetch('/api/ai', {
+        const resp = await fetch(`${apiBase}/api/ai`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body)
         });
         const data = await resp.json();
         if (!resp.ok) {
-          throw new Error(data?.error || '请求失败');
+          throw new Error(data?.error || data?.detail || '请求失败');
         }
 
         let messageText = '';
@@ -287,7 +325,13 @@ export function AIChat({ onNavigate }: AIChatProps) {
             </div>
             
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+            <div
+              ref={(el) => {
+                messagesContainerRef.current = el;
+                listRef.current = el;
+              }}
+              className="relative flex-1 overflow-y-auto p-6 space-y-4 min-h-0"
+            >
               {messages.map((msg) => (
                 <div key={msg.id} className="space-y-2">
                   <ChatBubble
@@ -312,6 +356,22 @@ export function AIChat({ onNavigate }: AIChatProps) {
                 </div>
               ))}
               <div ref={messageEndRef} />
+              {!autoScroll && (
+                <div className="sticky bottom-4 flex justify-center">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => {
+                      setAutoScroll(true);
+                      requestAnimationFrame(() => {
+                        scrollToBottom();
+                      });
+                    }}
+                  >
+                    回到底部并继续自动滚动
+                  </Button>
+                </div>
+              )}
             </div>
 
             {errorMsg && (
@@ -327,7 +387,7 @@ export function AIChat({ onNavigate }: AIChatProps) {
               <div className="flex gap-3 flex-wrap items-center">
                 <div className="flex-1 min-w-[240px]">
                   <textarea
-                    className="w-full px-4 py-3 border-2 border-[#E9ECEF] rounded-lg focus:border-[#845EF7] focus:ring-2 focus:ring-[#845EF7] outline-none transition-all resize-none"
+                    className="w-full px-4 py-3 border-2 border-[#E9ECEF] rounded-lg focus:border-[#845EF7] focus:ring-2 focus:ring-[#845EF7] outline-none transition-all resize-none max-h-32 overflow-y-auto"
                     rows={3}
                     placeholder="文字或语音提问，支持粘贴关键词与时间码..."
                     value={inputMessage}
