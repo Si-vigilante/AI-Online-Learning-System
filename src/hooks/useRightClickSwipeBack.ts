@@ -6,6 +6,7 @@ const SWIPE_Y_TOLERANCE = 60;
 interface Options {
   enableRightClickSwipeBack?: boolean;
   onBack?: () => void;
+  fallbackPath?: string;
 }
 
 const isInteractiveElement = (el: EventTarget | null) => {
@@ -18,12 +19,25 @@ const isInteractiveElement = (el: EventTarget | null) => {
 };
 
 export function useRightClickSwipeBack(options: Options = {}) {
-  const { enableRightClickSwipeBack = true, onBack } = options;
+  const { enableRightClickSwipeBack = true, onBack, fallbackPath = '/' } = options;
   const startX = useRef(0);
   const startY = useRef(0);
   const active = useRef(false);
   const triggered = useRef(false);
   const preventContextMenu = useRef(false);
+
+  const goBackSafely = () => {
+    const before = window.location.href;
+    const historyLen = window.history.length;
+    console.log('[swipeback] trigger back', { historyLen, url: before });
+    window.history.back();
+    setTimeout(() => {
+      const after = window.location.href;
+      if (after === before || window.history.length <= 1) {
+        window.location.assign(fallbackPath);
+      }
+    }, 300);
+  };
 
   useEffect(() => {
     if (!enableRightClickSwipeBack) return;
@@ -46,7 +60,11 @@ export function useRightClickSwipeBack(options: Options = {}) {
       if (deltaX <= SWIPE_X_THRESHOLD && Math.abs(deltaY) <= SWIPE_Y_TOLERANCE) {
         triggered.current = true;
         preventContextMenu.current = true;
-        (onBack || window.history.back)();
+        if (onBack) {
+          onBack();
+        } else {
+          goBackSafely();
+        }
       }
     };
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Navigation } from './components/Navigation';
 import { UserProfile, UserRole, clearSession, deleteUser, getCurrentUser, ensureTestStudent } from './services/auth';
 import { ensureCourseSeed } from './services/courses';
@@ -31,6 +31,7 @@ export default function App() {
   const [userRole, setUserRole] = useState<UserRole>('student');
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [selectedCourseId, setSelectedCourseId] = useState<string | undefined>();
+  const navStack = useRef<string[]>([]);
   useRightClickSwipeBack();
 
   const getLandingPage = (role: UserRole) => {
@@ -47,14 +48,26 @@ export default function App() {
       setCurrentUser(sessionUser);
       setUserRole(sessionUser.role);
       setCurrentPage(getLandingPage(sessionUser.role));
+      navStack.current = [];
     } else {
       setCurrentPage('login');
     }
   }, []);
   
   const handleNavigate = (page: string) => {
+    if (page === currentPage) return;
+    navStack.current.push(currentPage);
     setCurrentPage(page);
     window.scrollTo(0, 0);
+  };
+
+  const handleBack = () => {
+    if (navStack.current.length > 0) {
+      const prev = navStack.current.pop() as string;
+      setCurrentPage(prev);
+    } else {
+      setCurrentPage(getLandingPage(userRole));
+    }
   };
 
   const handleOpenCourse = (courseId: string) => {
@@ -65,12 +78,14 @@ export default function App() {
   const handleLoginSuccess = (user: UserProfile) => {
     setCurrentUser(user);
     setUserRole(user.role);
+    navStack.current = [];
     setCurrentPage(getLandingPage(user.role));
   };
 
   const handleLogout = () => {
     clearSession();
     setCurrentUser(null);
+    navStack.current = [];
     setCurrentPage('login');
   };
 
@@ -79,6 +94,7 @@ export default function App() {
     deleteUser(currentUser.userId);
     setCurrentUser(null);
     setUserRole('student');
+    navStack.current = [];
     setCurrentPage('register');
   };
   
@@ -157,15 +173,26 @@ export default function App() {
       
       {/* Quick Access Floating Button */}
       {!['login', 'register', 'flow-chart'].includes(currentPage) && (
-        <button
-          className="fixed bottom-8 right-8 w-14 h-14 bg-gradient-to-br from-[#4C6EF5] to-[#845EF7] rounded-full shadow-xl flex items-center justify-center text-white hover:shadow-2xl hover:scale-110 transition-all z-40"
-          onClick={() => handleNavigate('flow-chart')}
-          title="查看系统架构"
-        >
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
-          </svg>
-        </button>
+        <div className="fixed bottom-8 right-8 flex flex-col items-end gap-3 z-40">
+          <button
+            className="w-14 h-14 bg-white text-[#4C6EF5] border border-[#E9ECEF] rounded-full shadow-lg flex items-center justify-center hover:shadow-xl hover:-translate-y-0.5 transition-all"
+            onClick={handleBack}
+            title="返回上一页"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+          <button
+            className="w-14 h-14 bg-gradient-to-br from-[#4C6EF5] to-[#845EF7] rounded-full shadow-xl flex items-center justify-center text-white hover:shadow-2xl hover:scale-110 transition-all"
+            onClick={() => handleNavigate('flow-chart')}
+            title="查看系统架构"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+            </svg>
+          </button>
+        </div>
       )}
     </div>
   );
