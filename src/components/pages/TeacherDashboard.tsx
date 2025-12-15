@@ -1,32 +1,49 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Card } from '../design-system/Card';
 import { Button } from '../design-system/Button';
-import { BookOpen, FileText, Video, Users, PenTool, BarChart3, Plus, ArrowRight } from 'lucide-react';
+import { BookOpen, FileText, Video, Users, PenTool, BarChart3 } from 'lucide-react';
 import { UserProfile } from '../../services/auth';
+import { Course, getCourses, subscribeCourseUpdates } from '../../services/courses';
 
 interface TeacherDashboardProps {
   onNavigate: (page: string) => void;
   currentUser?: UserProfile | null;
+  onSelectCourse: (courseId: string) => void;
 }
 
-export function TeacherDashboard({ onNavigate, currentUser }: TeacherDashboardProps) {
+export function TeacherDashboard({ onNavigate, currentUser, onSelectCourse }: TeacherDashboardProps) {
+  const [courses, setCourses] = useState<Course[]>([]);
+
+  useEffect(() => {
+    const load = () => setCourses(getCourses());
+    load();
+    const unsub = subscribeCourseUpdates(load);
+    return () => {
+      if (unsub) unsub();
+    };
+  }, []);
+
+  const myCourses = useMemo(
+    () =>
+      courses.filter(
+        (c) =>
+          c.createdBy === (currentUser?.userId || 'teacher') ||
+          (currentUser?.role === 'teacher' && c.createdBy === 'teacher')
+      ),
+    [courses, currentUser]
+  );
+
   const stats = {
-    totalStudents: 156,
-    activeCourses: 5,
+    totalStudents: myCourses.reduce((sum, c) => sum + c.students, 0),
+    activeCourses: myCourses.length,
     pendingReviews: 12
   };
-  
-  const myCourses = [
-    { id: 1, title: '深度学习基础', students: 45, progress: 'Week 8/12' },
-    { id: 2, title: 'Python 编程入门', students: 68, progress: 'Week 5/10' },
-    { id: 3, title: '数据结构与算法', students: 43, progress: 'Week 3/16' }
-  ];
-  
+
   const pendingReviews = [
     { id: 1, student: '张三', type: '报告', title: '机器学习期中报告', submitted: '2小时前' },
     { id: 2, student: '李四', type: '作业', title: '第五章课后练习', submitted: '5小时前' }
   ];
-  
+
   return (
     <div className="min-h-screen bg-[#F8F9FA]">
       {/* Header */}
@@ -36,8 +53,7 @@ export function TeacherDashboard({ onNavigate, currentUser }: TeacherDashboardPr
           <p className="text-lg opacity-90">AI 赋能教学，让创作与管理更高效</p>
         </div>
       </div>
-      
-      {/* Main Content */}
+
       <div className="container-custom py-8">
         {/* Stats Overview */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
@@ -50,7 +66,7 @@ export function TeacherDashboard({ onNavigate, currentUser }: TeacherDashboardPr
             <p className="text-sm text-[#ADB5BD] mb-1">总学生数</p>
             <h3>{stats.totalStudents} 人</h3>
           </Card>
-          
+
           <Card className="p-6">
             <div className="flex items-center justify-between mb-3">
               <div className="w-12 h-12 bg-[#F3F0FF] rounded-xl flex items-center justify-center">
@@ -60,7 +76,7 @@ export function TeacherDashboard({ onNavigate, currentUser }: TeacherDashboardPr
             <p className="text-sm text-[#ADB5BD] mb-1">进行中课程</p>
             <h3>{stats.activeCourses} 门</h3>
           </Card>
-          
+
           <Card className="p-6">
             <div className="flex items-center justify-between mb-3">
               <div className="w-12 h-12 bg-[#FFF4E6] rounded-xl flex items-center justify-center">
@@ -71,7 +87,7 @@ export function TeacherDashboard({ onNavigate, currentUser }: TeacherDashboardPr
             <h3>{stats.pendingReviews} 份</h3>
           </Card>
         </div>
-        
+
         {/* AI Tools */}
         <div className="mb-8">
           <h3 className="mb-4">AI 教学工具</h3>
@@ -90,7 +106,7 @@ export function TeacherDashboard({ onNavigate, currentUser }: TeacherDashboardPr
                 </div>
               </div>
             </Card>
-            
+
             <Card className="p-6" onClick={() => onNavigate('ppt-to-video')}>
               <div className="flex items-start gap-4">
                 <div className="w-14 h-14 bg-gradient-to-br from-[#845EF7] to-[#BE4BDB] rounded-xl flex items-center justify-center flex-shrink-0">
@@ -105,7 +121,7 @@ export function TeacherDashboard({ onNavigate, currentUser }: TeacherDashboardPr
                 </div>
               </div>
             </Card>
-            
+
             <Card className="p-6" onClick={() => onNavigate('test-center')}>
               <div className="flex items-start gap-4">
                 <div className="w-14 h-14 bg-gradient-to-br from-[#51CF66] to-[#37B24D] rounded-xl flex items-center justify-center flex-shrink-0">
@@ -122,59 +138,41 @@ export function TeacherDashboard({ onNavigate, currentUser }: TeacherDashboardPr
             </Card>
           </div>
         </div>
-        
-        {/* My Courses & Pending Reviews */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          {/* My Courses */}
-          <div>
-            <div className="flex items-center justify-between mb-4">
-              <h3>我创建的课程</h3>
-              <Button variant="ghost" size="sm">
-                <Plus className="w-4 h-4" />
-                新建课程
-              </Button>
+
+        {/* Course Management Entry */}
+        <div className="mb-8">
+          <Card className="p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div>
+              <h3 className="mb-2">课程管理中心</h3>
+              <p className="text-sm text-[#ADB5BD]">在课程管理模块上传课程、生成 AI 教案，并维护已上线课程</p>
             </div>
-            
-            <Card className="p-6">
-              <div className="space-y-4">
-                {myCourses.map((course) => (
-                  <div 
-                    key={course.id} 
-                    className="flex items-center justify-between p-4 bg-[#F8F9FA] rounded-lg hover:bg-[#E9ECEF] transition-colors cursor-pointer"
-                    onClick={() => onNavigate('course-detail')}
-                  >
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 bg-gradient-to-br from-[#4C6EF5] to-[#845EF7] rounded-lg flex items-center justify-center">
-                        <BookOpen className="w-6 h-6 text-white" />
-                      </div>
-                      <div>
-                        <h5 className="mb-1">{course.title}</h5>
-                        <p className="text-xs text-[#ADB5BD]">
-                          {course.students} 名学生 · {course.progress}
-                        </p>
-                      </div>
-                    </div>
-                    <ArrowRight className="w-5 h-5 text-[#ADB5BD]" />
-                  </div>
-                ))}
-              </div>
-            </Card>
-          </div>
-          
-          {/* Pending Reviews */}
-          <div>
+            <div className="flex gap-3">
+              <Button variant="secondary" onClick={() => onNavigate('course-list')}>进入课程管理</Button>
+              <Button onClick={() => onNavigate('course-list')}>立即上传课程</Button>
+            </div>
+          </Card>
+        </div>
+
+        {/* Pending Reviews */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="lg:col-span-3">
             <div className="flex items-center justify-between mb-4">
               <h3>待批改作业</h3>
-              <Button variant="ghost" size="sm">
-                查看全部
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button variant="ghost" size="sm" onClick={() => onNavigate('course-list')}>
+                  前往课程管理
+                </Button>
+                <Button variant="ghost" size="sm">
+                  查看全部
+                </Button>
+              </div>
             </div>
-            
+
             <Card className="p-6">
               <div className="space-y-4">
                 {pendingReviews.map((item) => (
-                  <div 
-                    key={item.id} 
+                  <div
+                    key={item.id}
                     className="p-4 bg-[#F8F9FA] rounded-lg hover:bg-[#E9ECEF] transition-colors cursor-pointer"
                     onClick={() => onNavigate('report-review')}
                   >
@@ -196,7 +194,7 @@ export function TeacherDashboard({ onNavigate, currentUser }: TeacherDashboardPr
                   </div>
                 ))}
               </div>
-              
+
               <div className="mt-4 pt-4 border-t border-[#E9ECEF]">
                 <Button variant="primary" fullWidth onClick={() => onNavigate('report-review')}>
                   开始批改
@@ -205,7 +203,7 @@ export function TeacherDashboard({ onNavigate, currentUser }: TeacherDashboardPr
             </Card>
           </div>
         </div>
-        
+
         {/* Student Data Overview */}
         <div className="mt-8">
           <h3 className="mb-4">学生数据总览</h3>

@@ -1,15 +1,33 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Card } from '../design-system/Card';
 import { Button } from '../design-system/Button';
 import { BookOpen, MessageCircle, FileText, TrendingUp, Clock, Award, Play, CheckCircle } from 'lucide-react';
 import { UserProfile } from '../../services/auth';
+import { Course, getCourses, getUserEnrollments, setCurrentCourseId, subscribeCourseUpdates } from '../../services/courses';
 
 interface StudentDashboardProps {
   onNavigate: (page: string) => void;
   currentUser?: UserProfile | null;
+  onSelectCourse: (courseId: string) => void;
 }
 
-export function StudentDashboard({ onNavigate, currentUser }: StudentDashboardProps) {
+export function StudentDashboard({ onNavigate, currentUser, onSelectCourse }: StudentDashboardProps) {
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [enrollments, setEnrollments] = useState(() => getUserEnrollments(currentUser?.userId));
+
+  useEffect(() => {
+    const load = () => setCourses(getCourses());
+    load();
+    const unsub = subscribeCourseUpdates(load);
+    return () => {
+      if (unsub) unsub();
+    };
+  }, []);
+
+  useEffect(() => {
+    setEnrollments(getUserEnrollments(currentUser?.userId));
+  }, [currentUser]);
+
   const stats = currentUser?.stats || {
     coursesEnrolled: 0,
     coursesCompleted: 0,
@@ -22,17 +40,25 @@ export function StudentDashboard({ onNavigate, currentUser }: StudentDashboardPr
     completedLessons: stats.coursesCompleted || 0,
     quizScore: stats.certificates > 0 ? 85 : 0
   };
-  
-  const recommendedCourses = [
-    { id: 1, title: '深度学习基础', progress: 0, instructor: '张教授', thumbnail: 'ai-neural' },
-    { id: 2, title: 'Python 数据分析', progress: 0, instructor: '李老师', thumbnail: 'data-science' },
-    { id: 3, title: '机器学习实战', progress: 0, instructor: '王博士', thumbnail: 'machine-learning' }
-  ];
-  
+  const recommendedCourses = useMemo(() => {
+    const enrolledIds = new Set(enrollments.map((e) => e.courseId));
+    return courses.filter((c) => !enrolledIds.has(c.id)).slice(0, 3);
+  }, [courses, enrollments]);
+
+  const myCourses = useMemo(
+    () => courses.filter((course) => enrollments.some((enroll) => enroll.courseId === course.id)),
+    [courses, enrollments]
+  );
+
   const pendingTasks = [
     { id: 1, type: 'quiz', title: '暂无待办', deadline: '' },
     { id: 2, type: 'report', title: '暂无待办', deadline: '' }
   ];
+
+  const openCourse = (courseId: string) => {
+    setCurrentCourseId(courseId);
+    onSelectCourse(courseId);
+  };
   
   return (
     <div className="min-h-screen bg-[#F8F9FA]">
@@ -96,7 +122,7 @@ export function StudentDashboard({ onNavigate, currentUser }: StudentDashboardPr
           
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {recommendedCourses.map((course) => (
-              <Card key={course.id} className="overflow-hidden" onClick={() => onNavigate('course-detail')}>
+              <Card key={course.id} className="overflow-hidden" onClick={() => openCourse(course.id)}>
                 <div className="h-40 bg-gradient-to-br from-[#4C6EF5] to-[#845EF7] flex items-center justify-center">
                   <BookOpen className="w-16 h-16 text-white opacity-50" />
                 </div>
@@ -104,27 +130,52 @@ export function StudentDashboard({ onNavigate, currentUser }: StudentDashboardPr
                   <h4 className="mb-2">{course.title}</h4>
                   <p className="text-sm text-[#ADB5BD] mb-3">讲师：{course.instructor}</p>
                   
-                  <div className="mb-3">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs text-[#ADB5BD]">学习进度</span>
-                      <span className="text-xs text-[#4C6EF5]">{course.progress}%</span>
-                    </div>
-                    <div className="w-full h-2 bg-[#E9ECEF] rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-[#4C6EF5] transition-all duration-300"
-                        style={{ width: `${course.progress}%` }}
-                      />
-                    </div>
-                  </div>
+                  <p className="text-xs text-[#ADB5BD] mb-3">未选课 · 浏览详情后可选/退课</p>
                   
-                  <Button variant={course.progress > 0 ? 'primary' : 'secondary'} fullWidth size="sm">
+                  <Button variant="secondary" fullWidth size="sm" onClick={() => openCourse(course.id)}>
                     <Play className="w-4 h-4" />
-                    {course.progress > 0 ? '继续学习' : '开始学习'}
+                    了解并选课
                   </Button>
                 </div>
               </Card>
             ))}
           </div>
+        </div>
+
+        {/* My Enrollments */}
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <h3>我的选课</h3>
+            <Button variant="ghost" size="sm" onClick={() => onNavigate('course-list')}>
+              去课程中心
+            </Button>
+          </div>
+          {myCourses.length === 0 ? (
+            <Card className="p-6 text-center">
+              <p className="text-[#ADB5BD] mb-3">当前没有已选课程，前往课程中心开始选课。</p>
+              <Button onClick={() => onNavigate('course-list')}>立即选课</Button>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {myCourses.map((course) => (
+                <Card key={course.id} className="p-5 hover:shadow-lg transition" onClick={() => openCourse(course.id)}>
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-10 h-10 bg-gradient-to-br from-[#4C6EF5] to-[#845EF7] rounded-lg flex items-center justify-center text-white">
+                      <BookOpen className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h5 className="mb-1">{course.title}</h5>
+                      <p className="text-xs text-[#ADB5BD]">讲师：{course.instructor}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-[#ADB5BD]">
+                    <span>{course.level}</span>
+                    <span>{course.duration}</span>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          )}
         </div>
         
         {/* Quick Actions & Pending Tasks */}

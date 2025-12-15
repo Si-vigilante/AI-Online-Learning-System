@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Navigation } from './components/Navigation';
 import { UserProfile, UserRole, clearSession, deleteUser, getCurrentUser, ensureTestStudent } from './services/auth';
+import { ensureCourseSeed } from './services/courses';
 
 // Pages
 import { Login } from './components/pages/Login';
@@ -28,6 +29,7 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState('login');
   const [userRole, setUserRole] = useState<UserRole>('student');
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [selectedCourseId, setSelectedCourseId] = useState<string | undefined>();
 
   const getLandingPage = (role: UserRole) => {
     if (role === 'teacher') return 'teacher-dashboard';
@@ -36,6 +38,7 @@ export default function App() {
   };
 
   useEffect(() => {
+    ensureCourseSeed();
     ensureTestStudent();
     const sessionUser = getCurrentUser();
     if (sessionUser) {
@@ -50,6 +53,11 @@ export default function App() {
   const handleNavigate = (page: string) => {
     setCurrentPage(page);
     window.scrollTo(0, 0);
+  };
+
+  const handleOpenCourse = (courseId: string) => {
+    setSelectedCourseId(courseId);
+    setCurrentPage('course-detail');
   };
 
   const handleLoginSuccess = (user: UserProfile) => {
@@ -81,17 +89,24 @@ export default function App() {
       case 'register':
         return <Register {...pageProps} onRegisterSuccess={handleLoginSuccess} />;
       case 'student-dashboard':
-        return <StudentDashboard {...pageProps} currentUser={currentUser} />;
+        return <StudentDashboard {...pageProps} currentUser={currentUser} onSelectCourse={handleOpenCourse} />;
       case 'teacher-dashboard':
-        return <TeacherDashboard {...pageProps} currentUser={currentUser} />;
+        return <TeacherDashboard {...pageProps} currentUser={currentUser} onSelectCourse={handleOpenCourse} />;
       case 'text-to-ppt':
         return <TextToPPT {...pageProps} />;
       case 'ppt-to-video':
         return <PPTToVideo {...pageProps} />;
       case 'course-list':
-        return <CourseList {...pageProps} />;
+        return <CourseList {...pageProps} currentUser={currentUser} onSelectCourse={handleOpenCourse} />;
       case 'course-detail':
-        return <CourseDetail {...pageProps} />;
+        return (
+          <CourseDetail
+            {...pageProps}
+            currentUser={currentUser}
+            courseId={selectedCourseId}
+            onSelectCourse={handleOpenCourse}
+          />
+        );
       case 'video-player':
         return <VideoPlayer {...pageProps} />;
       case 'ai-chat':

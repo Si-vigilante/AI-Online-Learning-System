@@ -52,12 +52,7 @@ export const ensureTestStudent = () => {
     major: '计算机科学与技术',
     grade: '大二',
     interests: ['深度学习', 'Python', '数据分析'],
-    stats: {
-      coursesEnrolled: 3,
-      coursesCompleted: 1,
-      totalHours: 25,
-      certificates: 0
-    },
+    stats: { ...defaultStats },
     createdAt: new Date().toISOString()
   };
 
