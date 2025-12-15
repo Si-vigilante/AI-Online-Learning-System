@@ -33,6 +33,20 @@ const categoryLabels: Record<string, string> = {
   theory: '通识/理论'
 };
 
+const courseTagMap: Record<string, string> = {
+  '形势与政策': '通识课',
+  '大学英语': '通识课',
+  '马克思主义基本原理': '通识课',
+  '数字逻辑设计': '计科',
+  '离散数学': '计科',
+  '电路与电子学': '计科',
+  '大学物理': '计科',
+  '现代设计史': '数媒',
+  '设计美学': '数媒',
+  '摄影与镜头语言设计': '数媒',
+  '数字程序设计基础': '数媒'
+};
+
 export function CourseList({ onNavigate, onSelectCourse, currentUser }: CourseListProps) {
   const [activeTab, setActiveTab] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -75,11 +89,17 @@ export function CourseList({ onNavigate, onSelectCourse, currentUser }: CourseLi
   const sortedCourses = useMemo(() => {
     const hasThumb = (course: Course) => Boolean(course.thumbnail);
     const isEnrolled = (course: Course) => enrolledIds.has(course.id);
+    const tagPriority = (course: Course) => (courseTagMap[course.title] ? 1 : 0);
 
     return [...courses].sort((a, b) => {
       const aEnrolled = isEnrolled(a);
       const bEnrolled = isEnrolled(b);
       if (aEnrolled !== bEnrolled) return Number(bEnrolled) - Number(aEnrolled);
+
+      // 优先显示有分类标签的课程
+      const aTag = tagPriority(a);
+      const bTag = tagPriority(b);
+      if (aTag !== bTag) return bTag - aTag;
 
       const aThumb = hasThumb(a);
       const bThumb = hasThumb(b);
@@ -393,6 +413,11 @@ export function CourseList({ onNavigate, onSelectCourse, currentUser }: CourseLi
               {/* Content */}
               <div className="p-5">
                 <h4 className="mb-2 line-clamp-1">{course.title}</h4>
+                {courseTagMap[course.title] && (
+                  <span className="inline-block text-xs text-[#4C6EF5] bg-[#EDF2FF] px-2 py-1 rounded-full mb-2">
+                    {courseTagMap[course.title]}
+                  </span>
+                )}
                 <p className="text-sm text-[#ADB5BD] mb-2">讲师：{course.instructor}</p>
                 <p className="text-xs text-[#ADB5BD] line-clamp-2 mb-3">{course.description}</p>
                 
