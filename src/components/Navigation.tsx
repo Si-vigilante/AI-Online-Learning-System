@@ -48,7 +48,10 @@ export function Navigation({ currentPage, onNavigate, userRole = 'student', curr
   return (
     <>
       {/* Desktop Navigation */}
-      <nav className="hidden lg:block bg-white border-b border-[#E9ECEF] sticky top-0 z-50" style={{ paddingTop: '16px' }}>
+      <nav
+        className="hidden lg:block bg-white border-b border-[#E9ECEF] sticky top-0 z-50"
+        style={{ paddingTop: '16px', paddingBottom: '16px' }}
+      >
         <div className="container-custom py-4">
           <div className="flex items-center justify-between">
             {/* Logo */}
@@ -135,7 +138,10 @@ export function Navigation({ currentPage, onNavigate, userRole = 'student', curr
       </nav>
       
       {/* Mobile Navigation */}
-      <nav className="lg:hidden bg-white border-b border-[#E9ECEF] sticky top-0 z-50" style={{ paddingTop: '16px' }}>
+      <nav
+        className="lg:hidden bg-white border-b border-[#E9ECEF] sticky top-0 z-50"
+        style={{ paddingTop: '16px', paddingBottom: '16px' }}
+      >
         <div className="flex items-center justify-between px-4 py-4">
           <div
             className="flex items-center gap-2"
