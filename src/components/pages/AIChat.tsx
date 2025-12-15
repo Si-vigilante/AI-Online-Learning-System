@@ -2,19 +2,20 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Card } from '../design-system/Card';
 import { Button } from '../design-system/Button';
 import { ChatBubble } from '../design-system/ChatBubble';
-import { Send, Sparkles, BookOpen, HelpCircle, Mic, MicOff, Link2, Clock, Video, Phone, ScreenShare } from 'lucide-react';
-import { AiPanel } from '../AiPanel';
+import { Send, Sparkles, BookOpen, HelpCircle, Mic, MicOff, Link2 } from 'lucide-react';
 
 interface AIChatProps {
   onNavigate: (page: string) => void;
 }
 
 export function AIChat({ onNavigate }: AIChatProps) {
-  const [messages, setMessages] = useState([
+  const [messages, setMessages] = useState<
+    { id: number; message: string; sender: 'ai' | 'user'; timestamp: string; thinking?: string; json?: any }[]
+  >([
     {
       id: 1,
-      message: '你好！我是 AI 助教。已连接课程知识图谱，随时为你解答。你可以输入文字或语音，或附上课程片段以获取精准回答。',
-      sender: 'ai' as const,
+      message: '你好！我是 AI 助教，已接入 ModelScope · DeepSeek-V3.2，随时为你解答。请选择右侧任务后开始对话。',
+      sender: 'ai',
       timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
     }
   ]);
@@ -24,7 +25,20 @@ export function AIChat({ onNavigate }: AIChatProps) {
   const [faqLog, setFaqLog] = useState<{ id: number; question: string; answer: string; tag: string }[]>([]);
   const [isListening, setIsListening] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(false);
+  const [task, setTask] = useState<'translate' | 'organize' | 'tutor' | 'quiz' | 'grade'>('tutor');
+  const [stream, setStream] = useState(true);
+  const [enableThinking, setEnableThinking] = useState(true);
+  const [isSending, setIsSending] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+  const messageEndRef = useRef<HTMLDivElement | null>(null);
   const recognitionRef = useRef<any>(null);
+  const defaultStreamMap = {
+    translate: true,
+    tutor: true,
+    organize: false,
+    quiz: false,
+    grade: false
+  };
   
   const quickQuestions = [
     '帮我总结本节课要点',
@@ -63,47 +77,174 @@ export function AIChat({ onNavigate }: AIChatProps) {
       recognitionRef.current = recog;
     }
   }, []);
+
+  useEffect(() => {
+    setStream(defaultStreamMap[task]);
+  }, [task]);
+
+  useEffect(() => {
+    messageEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  const parseSseBuffer = (buffer: string, onPayload: (data: any) => void) => {
+    const parts = buffer.split('\n\n');
+    const pending = parts.pop() || '';
+    for (const part of parts) {
+      const trimmed = part.trim();
+      if (!trimmed.startsWith('data:')) continue;
+      const jsonStr = trimmed.replace(/^data:\s*/, '');
+      try {
+        const payload = JSON.parse(jsonStr);
+        onPayload(payload);
+      } catch (err) {
+        // ignore malformed chunk
+      }
+    }
+    return pending;
+  };
+
+  const formatJson = (data: any) => {
+    try {
+      return JSON.stringify(data, null, 2);
+    } catch {
+      return String(data);
+    }
+  };
   
-  const handleSendMessage = () => {
-    if (!inputMessage.trim()) return;
-    
+  const handleSendMessage = async () => {
+    if (!inputMessage.trim() || isSending) return;
+    setErrorMsg('');
+
     const segmentText = selectedSegment
       ? `\n[关联片段] ${courseSegments.find((c) => c.id === selectedSegment)?.title || ''}`
       : '';
 
+    const userContent = inputMessage + segmentText;
     const newMessage = {
       id: messages.length + 1,
-      message: inputMessage + segmentText,
+      message: userContent,
       sender: 'user' as const,
       timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
     };
     
-    setMessages([...messages, newMessage]);
+    setMessages((prev) => [...prev, newMessage]);
     setInputMessage('');
     setSelectedSegment(null);
-    
-    // Simulate AI response
-    setTimeout(() => {
-      const segmentRef = selectedSegment
-        ? `已定位至片段 ${courseSegments.find((c) => c.id === selectedSegment)?.time}，结合该知识点为你解答。`
-        : '已基于课程知识图谱检索相关节点。';
-      const aiResponse = {
-        id: messages.length + 2,
-        message: `${segmentRef}\n\n核心回答：深度学习是机器学习的子领域，通过多层非线性网络学习表示，关键包含自动特征提取、端到端训练与大规模数据支撑。\n\n可选动作：\n- 需要推送相关练习题吗？\n- 要不要生成本节 3 句总结？`,
-        sender: 'ai' as const,
-        timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+
+    const aiMsgId = newMessage.id + 1;
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: aiMsgId,
+        message: '',
+        sender: 'ai',
+        timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+        thinking: '',
+        json: null
+      }
+    ]);
+
+    setIsSending(true);
+    try {
+      const body = {
+        task,
+        payload: { text: userContent },
+        stream,
+        enable_thinking: enableThinking
       };
-      setMessages(prev => [...prev, aiResponse]);
-      setFaqLog((prev) => [
-        ...prev,
-        {
-          id: Date.now(),
-          question: newMessage.message,
-          answer: aiResponse.message,
-          tag: selectedSegment ? '片段关联' : '通用'
+
+      if (stream) {
+        const resp = await fetch('/api/ai', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        if (!resp.ok) {
+          const errData = await resp.json().catch(() => ({}));
+          throw new Error(errData?.error || '请求失败');
         }
-      ]);
-    }, 1000);
+        const reader = resp.body?.getReader();
+        if (!reader) throw new Error('读取流失败');
+        const decoder = new TextDecoder();
+        let buffer = '';
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          buffer = parseSseBuffer(buffer, (payload) => {
+            if (payload.type === 'thinking' && payload.delta) {
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === aiMsgId ? { ...m, thinking: (m.thinking || '') + payload.delta } : m
+                )
+              );
+            }
+            if (payload.type === 'content' && payload.delta) {
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === aiMsgId ? { ...m, message: (m.message || '') + payload.delta } : m
+                )
+              );
+            }
+            if (payload.type === 'done') {
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === aiMsgId
+                    ? {
+                        ...m,
+                        message: payload.content || m.message,
+                        thinking: payload.reasoning || m.thinking
+                      }
+                    : m
+                )
+              );
+            }
+            if (payload.type === 'error' && payload.error) {
+              throw new Error(payload.error);
+            }
+          });
+        }
+      } else {
+        const resp = await fetch('/api/ai', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          throw new Error(data?.error || '请求失败');
+        }
+
+        let messageText = '';
+        let jsonData: any = null;
+        if (data?.success || data?.data) {
+          jsonData = data.data || data.raw || null;
+          messageText = formatJson(jsonData);
+        } else if (data?.content) {
+          messageText = data.content;
+        } else {
+          messageText = formatJson(data);
+        }
+
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === aiMsgId
+              ? {
+                  ...m,
+                  message: messageText,
+                  json: jsonData
+                }
+              : m
+          )
+        );
+      }
+    } catch (err: any) {
+      const message = err?.message || '请求失败';
+      setErrorMsg(message);
+      setMessages((prev) => prev.filter((m) => m.id !== aiMsgId));
+    } finally {
+      setIsSending(false);
+    }
   };
   
   const handleQuickQuestion = (question: string) => {
@@ -126,119 +267,147 @@ export function AIChat({ onNavigate }: AIChatProps) {
       <div className="bg-gradient-to-r from-[#845EF7] to-[#BE4BDB] text-white py-8 px-8">
         <div className="container-custom">
           <h2 className="text-white mb-2">AI 助教答疑</h2>
-          <p className="opacity-90">24/7 智能解答，助力您的学习之旅</p>
+          <p className="opacity-90">统一对话入口 · 支持翻译 / 整理 / 答疑 / 出题 / 批改</p>
         </div>
       </div>
       
       <div className="container-custom py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-6">
           {/* Chat Area */}
-          <div className="lg:col-span-3 space-y-6">
-            <Card className="h-[calc(100vh-16rem)] flex flex-col">
-              {/* Chat Header */}
-              <div className="p-6 border-b border-[#E9ECEF]">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 bg-gradient-to-br from-[#845EF7] to-[#BE4BDB] rounded-full flex items-center justify-center">
-                    <Sparkles className="w-6 h-6 text-white" />
-                  </div>
-                  <div>
-                    <h4>AI 助教</h4>
-                    <p className="text-sm text-[#ADB5BD]">在线 · 随时为您服务</p>
-                  </div>
-                </div>
+          <Card className="min-h-[70vh] flex flex-col">
+            {/* Chat Header */}
+            <div className="p-6 border-b border-[#E9ECEF] flex items-center gap-3">
+              <div className="w-12 h-12 bg-gradient-to-br from-[#845EF7] to-[#BE4BDB] rounded-full flex items-center justify-center">
+                <Sparkles className="w-6 h-6 text-white" />
               </div>
-              
-              {/* Messages */}
-              <div className="flex-1 overflow-y-auto p-6">
-                {messages.map((msg) => (
+              <div>
+                <h4>AI 助教</h4>
+                <p className="text-sm text-[#ADB5BD]">DeepSeek-V3.2 · ModelScope</p>
+              </div>
+            </div>
+            
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+              {messages.map((msg) => (
+                <div key={msg.id} className="space-y-2">
                   <ChatBubble
-                    key={msg.id}
                     message={msg.message}
                     sender={msg.sender}
                     timestamp={msg.timestamp}
                   />
-                ))}
-              </div>
-              
-              {/* Input Area */}
-              <div className="p-6 border-t border-[#E9ECEF]">
-                <div className="flex gap-3 flex-wrap items-center">
-                  <div className="flex-1 min-w-[240px]">
-                    <textarea
-                      className="w-full px-4 py-3 border-2 border-[#E9ECEF] rounded-lg focus:border-[#845EF7] focus:ring-2 focus:ring-[#845EF7] outline-none transition-all resize-none"
-                      rows={2}
-                      placeholder="文字或语音提问，支持粘贴关键词与时间码..."
-                      value={inputMessage}
-                      onChange={(e) => setInputMessage(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSendMessage())}
-                    />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="flex items-center gap-2 px-3 py-2 border-2 border-[#E9ECEF] rounded-lg">
-                      <Link2 className="w-4 h-4 text-[#845EF7]" />
-                      <select
-                        className="text-sm outline-none bg-transparent"
-                        value={selectedSegment ?? ''}
-                        onChange={(e) => setSelectedSegment(e.target.value || null)}
-                      >
-                        <option value="">关联课程片段</option>
-                        {courseSegments.map((seg) => (
-                          <option key={seg.id} value={seg.id}>{seg.title}</option>
-                        ))}
-                      </select>
+                  {msg.thinking && (
+                    <div className="ml-12 text-xs text-[#845EF7] bg-[#F3F0FF] border border-dashed border-[#DEC9FF] rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Sparkles className="w-3 h-3" />
+                        <span>思考中</span>
+                      </div>
+                      <div className="whitespace-pre-wrap leading-relaxed">{msg.thinking}</div>
                     </div>
-                    <Button variant="secondary" onClick={isListening ? handleStopVoice : handleStartVoice} disabled={!speechSupported}>
-                      {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-                      {isListening ? '停止语音' : speechSupported ? '语音输入' : '不支持语音'}
-                    </Button>
-                    <Button onClick={handleSendMessage}>
-                      <Send className="w-5 h-5" />
-                    </Button>
+                  )}
+                  {msg.json && (
+                    <pre className="ml-12 bg-[#F8F9FA] border border-[#E9ECEF] rounded-lg p-3 text-xs whitespace-pre-wrap overflow-auto">
+                      {formatJson(msg.json)}
+                    </pre>
+                  )}
+                </div>
+              ))}
+              <div ref={messageEndRef} />
+            </div>
+
+            {errorMsg && (
+              <div className="px-6 pb-2">
+                <div className="text-sm text-[#C92A2A] bg-[#FFF0F6] border border-[#FA5252] rounded-lg p-3">
+                  {errorMsg}
+                </div>
+              </div>
+            )}
+            
+            {/* Input Area */}
+            <div className="p-6 border-t border-[#E9ECEF]">
+              <div className="flex gap-3 flex-wrap items-center">
+                <div className="flex-1 min-w-[240px]">
+                  <textarea
+                    className="w-full px-4 py-3 border-2 border-[#E9ECEF] rounded-lg focus:border-[#845EF7] focus:ring-2 focus:ring-[#845EF7] outline-none transition-all resize-none"
+                    rows={3}
+                    placeholder="文字或语音提问，支持粘贴关键词与时间码..."
+                    value={inputMessage}
+                    onChange={(e) => setInputMessage(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSendMessage())}
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 px-3 py-2 border-2 border-[#E9ECEF] rounded-lg">
+                    <Link2 className="w-4 h-4 text-[#845EF7]" />
+                    <select
+                      className="text-sm outline-none bg-transparent"
+                      value={selectedSegment ?? ''}
+                      onChange={(e) => setSelectedSegment(e.target.value || null)}
+                    >
+                      <option value="">关联课程片段</option>
+                      {courseSegments.map((seg) => (
+                        <option key={seg.id} value={seg.id}>{seg.title}</option>
+                      ))}
+                    </select>
                   </div>
+                  <Button variant="secondary" onClick={isListening ? handleStopVoice : handleStartVoice} disabled={!speechSupported}>
+                    {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                    {isListening ? '停止语音' : speechSupported ? '语音输入' : '不支持语音'}
+                  </Button>
+                  <Button onClick={handleSendMessage} disabled={isSending}>
+                    <Send className="w-5 h-5" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </Card>
+          
+          {/* Sidebar as settings / helpers */}
+          <div className="space-y-6">
+            <Card className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-[#845EF7]" />
+                  <h5>对话设置</h5>
+                </div>
+                <Button size="sm" variant="secondary" onClick={() => setMessages((prev) => prev.slice(0, 1))}>
+                  清空对话
+                </Button>
+              </div>
+              <div className="space-y-3">
+                <label className="text-sm text-[#495057]">任务</label>
+                <select
+                  className="w-full border border-[#DEE2E6] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#845EF7]"
+                  value={task}
+                  onChange={(e) => setTask(e.target.value as any)}
+                >
+                  <option value="translate">translate · 实时翻译</option>
+                  <option value="organize">organize · 自动整理 (JSON)</option>
+                  <option value="tutor">tutor · 助教答疑</option>
+                  <option value="quiz">quiz · 自动出题 (JSON)</option>
+                  <option value="grade">grade · AI 批改 (JSON)</option>
+                </select>
+
+                <div className="flex items-center gap-3 flex-wrap">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={enableThinking}
+                      onChange={(e) => setEnableThinking(e.target.checked)}
+                    />
+                    启用思考 enable_thinking
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={stream}
+                      onChange={(e) => setStream(e.target.checked)}
+                    />
+                    流式 stream
+                  </label>
                 </div>
               </div>
             </Card>
 
-            <Card className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-[#845EF7]" />
-                  <h5 className="mb-0">教师在线辅导</h5>
-                </div>
-                <Button size="sm" variant="secondary">预约 1 对 1</Button>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
-                <div className="p-3 border-2 border-[#E9ECEF] rounded-lg">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-medium">今晚 19:30 直播答疑</span>
-                    <Video className="w-4 h-4 text-[#845EF7]" />
-                  </div>
-                  <p className="text-xs text-[#ADB5BD]">主题：第一章重难点解析</p>
-                  <Button fullWidth size="sm" className="mt-3">进入直播</Button>
-                </div>
-                <div className="p-3 border-2 border-[#E9ECEF] rounded-lg">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-medium">明日 14:00 1v1</span>
-                    <Phone className="w-4 h-4 text-[#845EF7]" />
-                  </div>
-                  <p className="text-xs text-[#ADB5BD]">教师：李老师 · 语音 + 屏幕共享</p>
-                  <Button fullWidth size="sm" variant="secondary" className="mt-3">修改预约</Button>
-                </div>
-                <div className="p-3 border-2 border-[#E9ECEF] rounded-lg">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-medium">随时发起辅导</span>
-                    <ScreenShare className="w-4 h-4 text-[#845EF7]" />
-                  </div>
-                  <p className="text-xs text-[#ADB5BD]">支持文字、语音、屏幕共享</p>
-                  <Button fullWidth size="sm" variant="primary" className="mt-3" onClick={() => onNavigate('video-player')}>共享屏幕练习</Button>
-                </div>
-              </div>
-            </Card>
-          </div>
-          
-          {/* Sidebar */}
-          <div className="space-y-6">
-            <AiPanel />
             {/* Quick Questions */}
             <Card className="p-6">
               <div className="flex items-center gap-2 mb-4">
