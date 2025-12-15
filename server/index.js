@@ -23,6 +23,9 @@ const db = new LowSync(adapter, { qaQuestions: [], forumPosts: [] });
 db.read();
 db.data = db.data || { qaQuestions: [], forumPosts: [] };
 
+// Helpers
+const genId = () => Math.random().toString(36).slice(2, 10);
+
 // Seed sample data for QA & forum
 const seedData = () => {
   if (!db.data.qaQuestions || db.data.qaQuestions.length === 0) {
@@ -88,9 +91,6 @@ const seedData = () => {
 };
 seedData();
 
-// Helpers
-const genId = () => Math.random().toString(36).slice(2, 10);
-
 // Q&A routes
 app.get('/api/qa/questions', (req, res) => {
   db.read();
@@ -150,6 +150,19 @@ app.post('/api/qa/questions/:id/accept', (req, res) => {
   res.json({ ok: true });
 });
 
+app.delete('/api/qa/questions/:id', (req, res) => {
+  db.read();
+  const question = db.data.qaQuestions.find((q) => q.id === req.params.id);
+  if (!question) return res.status(404).json({ error: 'not found' });
+  const { requesterName } = req.body || {};
+  if (!requesterName || requesterName !== question.author) {
+    return res.status(403).json({ error: 'only author can delete' });
+  }
+  db.data.qaQuestions = db.data.qaQuestions.filter((q) => q.id !== req.params.id);
+  db.write();
+  res.json({ ok: true });
+});
+
 // Forum routes
 app.get('/api/forum/posts', (req, res) => {
   db.read();
@@ -184,6 +197,19 @@ app.post('/api/forum/posts/:id/comments', (req, res) => {
   post.comments.push(comment);
   db.write();
   res.json(comment);
+});
+
+app.delete('/api/forum/posts/:id', (req, res) => {
+  db.read();
+  const post = db.data.forumPosts.find((p) => p.id === req.params.id);
+  if (!post) return res.status(404).json({ error: 'not found' });
+  const { requesterName } = req.body || {};
+  if (!requesterName || requesterName !== post.author) {
+    return res.status(403).json({ error: 'only author can delete' });
+  }
+  db.data.forumPosts = db.data.forumPosts.filter((p) => p.id !== req.params.id);
+  db.write();
+  res.json({ ok: true });
 });
 
 // Socket.IO rooms (in-memory)

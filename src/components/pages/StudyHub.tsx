@@ -4,7 +4,7 @@ import { Button } from '../design-system/Button';
 import { Input } from '../design-system/Input';
 import { Tabs } from '../design-system/Tabs';
 import { getSocket } from '../../lib/socket';
-import { apiGet, apiPost } from '../../lib/api';
+import { apiDelete, apiGet, apiPost } from '../../lib/api';
 import { Users, MessageCircle, Check, Loader2 } from 'lucide-react';
 
 type Message = { id: string; name: string; text: string; ts: number };
@@ -26,11 +26,13 @@ export function StudyHub() {
   const [posts, setPosts] = useState<any[]>([]);
   const [loadingQA, setLoadingQA] = useState(false);
   const [loadingForum, setLoadingForum] = useState(false);
+  const [qaOffline, setQaOffline] = useState(false);
+  const [forumOffline, setForumOffline] = useState(false);
   const [newQuestion, setNewQuestion] = useState({ title: '', content: '' });
   const [selectedQuestion, setSelectedQuestion] = useState<any | null>(null);
   const [answerText, setAnswerText] = useState('');
   const [newPost, setNewPost] = useState({ title: '', content: '' });
-  const [commentText, setCommentText] = useState('');
+  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
 
   const socket = useMemo(() => getSocket(), []);
 
@@ -201,14 +203,18 @@ export function StudyHub() {
     }
   ];
 
+  const makeLocalId = () => `local-${Math.random().toString(36).slice(2, 10)}`;
+
   const fetchQA = async () => {
     setLoadingQA(true);
     try {
       const data = await apiGet<any[]>('/api/qa/questions');
       setQuestions(data);
+      setQaOffline(false);
     } catch (err) {
       console.warn('加载问答失败，使用示例数据', err);
       setQuestions(sampleQuestions);
+      setQaOffline(true);
     } finally {
       setLoadingQA(false);
     }
@@ -219,9 +225,11 @@ export function StudyHub() {
     try {
       const data = await apiGet<any[]>('/api/forum/posts');
       setPosts(data);
+      setForumOffline(false);
     } catch (err) {
       console.warn('加载论坛失败，使用示例数据', err);
       setPosts(samplePosts);
+      setForumOffline(true);
     } finally {
       setLoadingForum(false);
     }
@@ -240,6 +248,18 @@ export function StudyHub() {
       fetchQA();
     } catch (err) {
       console.error('发布失败', err);
+      setQaOffline(true);
+      const local = {
+        id: makeLocalId(),
+        title: newQuestion.title,
+        content: newQuestion.content,
+        author: nickname || '匿名',
+        createdAt: Date.now(),
+        answers: [],
+        acceptedAnswerId: null
+      };
+      setQuestions((prev) => [local, ...prev]);
+      setNewQuestion({ title: '', content: '' });
     }
   };
 
@@ -253,6 +273,20 @@ export function StudyHub() {
       setSelectedQuestion(fresh);
     } catch (err) {
       console.error('回答失败', err);
+      setQaOffline(true);
+      const answer = {
+        id: makeLocalId(),
+        content: answerText,
+        author: nickname || '匿名',
+        createdAt: Date.now()
+      };
+      setQuestions((prev) =>
+        prev.map((q) => (q.id === questionId ? { ...q, answers: [...(q.answers || []), answer] } : q))
+      );
+      if (selectedQuestion?.id === questionId) {
+        setSelectedQuestion({ ...selectedQuestion, answers: [...(selectedQuestion.answers || []), answer] });
+      }
+      setAnswerText('');
     }
   };
 
@@ -264,6 +298,13 @@ export function StudyHub() {
       fetchQA();
     } catch (err) {
       console.error('采纳失败', err);
+      setQaOffline(true);
+      setQuestions((prev) =>
+        prev.map((q) => (q.id === questionId ? { ...q, acceptedAnswerId: answerId } : q))
+      );
+      if (selectedQuestion?.id === questionId) {
+        setSelectedQuestion({ ...selectedQuestion, acceptedAnswerId: answerId });
+      }
     }
   };
 
@@ -275,17 +316,66 @@ export function StudyHub() {
       fetchForum();
     } catch (err) {
       console.error('发帖失败', err);
+      setForumOffline(true);
+      const local = {
+        id: makeLocalId(),
+        title: newPost.title,
+        content: newPost.content,
+        author: nickname || '匿名',
+        createdAt: Date.now(),
+        comments: []
+      };
+      setPosts((prev) => [local, ...prev]);
+      setNewPost({ title: '', content: '' });
     }
   };
 
   const handleComment = async (postId: string) => {
-    if (!commentText.trim()) return;
+    const content = commentDrafts[postId] || '';
+    if (!content.trim()) return;
     try {
-      await apiPost(`/api/forum/posts/${postId}/comments`, { content: commentText, author: nickname });
-      setCommentText('');
+      await apiPost(`/api/forum/posts/${postId}/comments`, { content, author: nickname });
+      setCommentDrafts((prev) => ({ ...prev, [postId]: '' }));
       fetchForum();
     } catch (err) {
       console.error('评论失败', err);
+      setForumOffline(true);
+      const comment = {
+        id: makeLocalId(),
+        content,
+        author: nickname || '匿名',
+        createdAt: Date.now()
+      };
+      setPosts((prev) => prev.map((p) => (p.id === postId ? { ...p, comments: [...(p.comments || []), comment] } : p)));
+      setCommentDrafts((prev) => ({ ...prev, [postId]: '' }));
+    }
+  };
+
+  const handleDeleteQuestion = async (id: string, author: string) => {
+    if (author !== nickname) return;
+    if (!window.confirm('确认删除这条提问吗？')) return;
+    try {
+      await apiDelete(`/api/qa/questions/${id}`, { requesterName: nickname });
+      if (selectedQuestion?.id === id) setSelectedQuestion(null);
+      fetchQA();
+    } catch (err) {
+      console.error('删除失败', err);
+      setQaOffline(true);
+      setQuestions((prev) => prev.filter((q) => q.id !== id));
+      if (selectedQuestion?.id === id) setSelectedQuestion(null);
+    }
+  };
+
+  const handleDeletePost = async (id: string, author: string) => {
+    if (author !== nickname) return;
+    if (!window.confirm('确认删除这条帖子吗？')) return;
+    try {
+      await apiDelete(`/api/forum/posts/${id}`, { requesterName: nickname });
+      fetchForum();
+    } catch (err) {
+      console.error('删除失败', err);
+      setForumOffline(true);
+      setPosts((prev) => prev.filter((p) => p.id !== id));
     }
   };
 
@@ -409,6 +499,7 @@ export function StudyHub() {
                   {loadingQA ? <Loader2 className="w-4 h-4 animate-spin" /> : '刷新'}
                 </Button>
               </div>
+              {qaOffline && <p className="text-xs text-[#E67700] mb-3">当前使用演示数据，发布/回答仅本地可见，请启动后端服务。</p>}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
                 <Input label="问题标题" value={newQuestion.title} onChange={(e) => setNewQuestion({ ...newQuestion, title: e.target.value })} />
                 <Input label="问题内容" value={newQuestion.content} onChange={(e) => setNewQuestion({ ...newQuestion, content: e.target.value })} />
@@ -429,6 +520,11 @@ export function StudyHub() {
                     </div>
                     <div className="mt-3 flex gap-2">
                       <Button size="sm" variant="secondary" onClick={() => setSelectedQuestion(q)}>查看</Button>
+                      {q.author === nickname && (
+                        <Button size="sm" variant="ghost" onClick={() => handleDeleteQuestion(q.id, q.author)}>
+                          删除
+                        </Button>
+                      )}
                     </div>
                   </Card>
                 ))}
@@ -440,7 +536,14 @@ export function StudyHub() {
               <Card className="p-6">
                 <div className="flex items-center justify-between mb-2">
                   <h4 className="mb-0">{selectedQuestion.title}</h4>
-                  <Button size="sm" variant="ghost" onClick={() => setSelectedQuestion(null)}>关闭</Button>
+                  <div className="flex gap-2">
+                    {selectedQuestion.author === nickname && (
+                      <Button size="sm" variant="secondary" onClick={() => handleDeleteQuestion(selectedQuestion.id, selectedQuestion.author)}>
+                        删除
+                      </Button>
+                    )}
+                    <Button size="sm" variant="ghost" onClick={() => setSelectedQuestion(null)}>关闭</Button>
+                  </div>
                 </div>
                 <p className="text-sm text-[#495057] mb-2">{selectedQuestion.content}</p>
                 <p className="text-xs text-[#ADB5BD] mb-4">作者：{selectedQuestion.author}</p>
@@ -483,6 +586,7 @@ export function StudyHub() {
                   {loadingForum ? <Loader2 className="w-4 h-4 animate-spin" /> : '刷新'}
                 </Button>
               </div>
+              {forumOffline && <p className="text-xs text-[#E67700] mb-3">当前使用演示数据，发帖/评论仅本地可见，请启动后端服务。</p>}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
                 <Input label="帖子标题" value={newPost.title} onChange={(e) => setNewPost({ ...newPost, title: e.target.value })} />
                 <Input label="帖子内容" value={newPost.content} onChange={(e) => setNewPost({ ...newPost, content: e.target.value })} />
@@ -493,7 +597,14 @@ export function StudyHub() {
                   <Card key={p.id} className="p-4">
                     <div className="flex items-center justify-between mb-2">
                       <h5>{p.title}</h5>
-                      <span className="text-xs text-[#ADB5BD]">{new Date(p.createdAt).toLocaleString()}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-[#ADB5BD]">{new Date(p.createdAt).toLocaleString()}</span>
+                        {p.author === nickname && (
+                          <Button size="xs" variant="ghost" onClick={() => handleDeletePost(p.id, p.author)}>
+                            删除
+                          </Button>
+                        )}
+                      </div>
                     </div>
                     <p className="text-sm text-[#495057] mb-3">{p.content}</p>
                     <div className="space-y-2">
@@ -511,8 +622,8 @@ export function StudyHub() {
                       <input
                         className="flex-1 px-3 py-2 border-2 border-[#E9ECEF] rounded-lg focus:border-[#4C6EF5] outline-none text-sm"
                         placeholder="评论内容"
-                        value={commentText}
-                        onChange={(e) => setCommentText(e.target.value)}
+                        value={commentDrafts[p.id] || ''}
+                        onChange={(e) => setCommentDrafts((prev) => ({ ...prev, [p.id]: e.target.value }))}
                       />
                       <Button size="sm" onClick={() => handleComment(p.id)}>评论</Button>
                     </div>
