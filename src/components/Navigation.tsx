@@ -54,38 +54,45 @@ export function Navigation({ currentPage, onNavigate, userRole = 'student', curr
         className="hidden lg:block bg-white border-b border-[#E9ECEF] sticky top-0 z-50"
         style={{ paddingTop: '16px', paddingBottom: '16px' }}
       >
-        <div className="container-custom py-4">
-          <div className="flex items-center justify-between">
+        <div
+          className="container-custom py-4 px-6"
+          style={{ maxWidth: '1280px', marginLeft: 0, marginRight: 'auto' }}
+        >
+          <div className="flex items-center justify-between gap-6">
             {/* Logo */}
             <div
-              className="flex items-center gap-3 cursor-pointer"
+              className="flex items-center cursor-pointer"
+              style={{ gap: '16px' }}
               onClick={() => onNavigate(userRole === 'teacher' ? 'teacher-dashboard' : userRole === 'assistant' ? 'ai-chat' : 'student-dashboard')}
             >
-              <div className="w-10 h-10 bg-gradient-to-br from-[#4C6EF5] to-[#845EF7] rounded-lg flex items-center justify-center">
-                <img src="/image/icon/1.png" alt="logo" className="w-6 h-6 text-white" />
+              <div
+                className="flex items-center justify-center overflow-hidden"
+                style={{ width: '72px', height: '72px', borderRadius: '18px', background: '#ffffff' }}
+              >
+                <img src="/image/icon/1.png" alt="logo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               </div>
-              <div className="flex flex-col" style={{ transform: 'translateY(2px)', lineHeight: 1.15 }}>
+              <div className="flex flex-col justify-center leading-none">
                 <p
-                  className="text-sm md:text-base font-semibold text-[#212529] whitespace-nowrap"
-                  style={{ lineHeight: 1.15, margin: 0 }}
+                  className="font-bold whitespace-nowrap"
+                  style={{ fontSize: '28px', lineHeight: 1.15, color: '#212529', margin: 0 }}
                 >
                   知域 · AI 智能教学系统
                 </p>
                 <p
-                  className="text-xs text-[#ADB5BD] whitespace-nowrap"
-                  style={{ marginTop: '2px', lineHeight: 1.05, marginBottom: 0 }}
+                  className="font-medium whitespace-nowrap"
+                  style={{ fontSize: '16px', lineHeight: 1.15, color: 'rgba(0,0,0,0.55)', margin: 0, marginTop: '6px' }}
                 >
-                  {userRole === 'teacher' ? '教师中心' : userRole === 'assistant' ? 'AI 助教' : '智慧学习平台'}
+                  智慧学习平台
                 </p>
               </div>
             </div>
             
             {/* Nav Items */}
-            <div className="flex items-center gap-4 flex-nowrap">
+            <div className="flex items-center gap-6 flex-nowrap">
               {navItems.map((item) => (
                 <button
                   key={item.id}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all whitespace-nowrap ${
+                  className={`flex items-center gap-2 px-4 h-10 rounded-lg transition-all whitespace-nowrap text-[17px] leading-[1.1] ${
                     currentPage === item.id
                       ? 'bg-[#EDF2FF] text-[#4C6EF5]'
                       : 'text-[#212529] hover:bg-[#F8F9FA]'
@@ -101,7 +108,7 @@ export function Navigation({ currentPage, onNavigate, userRole = 'student', curr
             {/* User Menu */}
             <div className="flex items-center gap-3">
               <button 
-                className="flex items-center gap-2 px-4 py-2 rounded-lg hover:bg-[#F8F9FA] transition-colors"
+                className="flex items-center gap-2 px-4 h-10 rounded-lg hover:bg-[#F8F9FA] transition-colors leading-[1.1] text-base"
                 onClick={() => onNavigate('profile')}
               >
                 {currentUser?.avatar ? (
@@ -119,14 +126,14 @@ export function Navigation({ currentPage, onNavigate, userRole = 'student', curr
               </button>
               
               <button 
-                className="p-2 rounded-lg hover:bg-[#F8F9FA] transition-colors"
+                className="flex items-center justify-center h-10 w-10 rounded-lg hover:bg-[#F8F9FA] transition-colors"
                 onClick={() => onNavigate('settings')}
               >
                 <Settings className="w-5 h-5 text-[#ADB5BD]" />
               </button>
               
               <button 
-                className="p-2 rounded-lg hover:bg-[#F8F9FA] transition-colors text-[#ADB5BD] hover:text-[#FF6B6B]"
+                className="flex items-center justify-center h-10 w-10 rounded-lg hover:bg-[#F8F9FA] transition-colors text-[#ADB5BD] hover:text-[#FF6B6B]"
                 onClick={() => {
                   onLogout?.();
                   onNavigate('login');
@@ -144,20 +151,35 @@ export function Navigation({ currentPage, onNavigate, userRole = 'student', curr
         className="lg:hidden bg-white border-b border-[#E9ECEF] sticky top-0 z-50"
         style={{ paddingTop: '16px', paddingBottom: '16px' }}
       >
-        <div className="flex items-center justify-between px-4 py-4">
+        <div
+          className="flex items-center justify-between px-4 py-4"
+          style={{ maxWidth: '1280px', marginLeft: 1000, marginRight: 'auto' }}
+        >
           <div
-            className="flex items-center gap-2"
+            className="flex items-center cursor-pointer"
+            style={{ gap: '16px' }}
             onClick={() => onNavigate(userRole === 'teacher' ? 'teacher-dashboard' : userRole === 'assistant' ? 'ai-chat' : 'student-dashboard')}
           >
-            <div className="w-8 h-8 bg-gradient-to-br from-[#4C6EF5] to-[#845EF7] rounded-lg flex items-center justify-center">
-              <img src="/image/icon/1.png" alt="logo" className="w-5 h-5 text-white" />
-            </div>
-            <span
-              className="text-sm font-semibold whitespace-nowrap"
-              style={{ marginTop: '2px', lineHeight: 1.2 }}
+            <div
+              className="flex items-center justify-center overflow-hidden"
+              style={{ width: '72px', height: '72px', borderRadius: '18px', background: '#ffffff' }}
             >
-              知域 · AI 智能教学系统
-            </span>
+              <img src="/image/icon/1.png" alt="logo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            </div>
+            <div className="flex flex-col justify-center leading-none">
+              <p
+                className="font-bold whitespace-nowrap"
+                style={{ fontSize: '28px', lineHeight: 1.15, color: '#212529', margin: 0 }}
+              >
+                知域 · AI 智能教学系统
+              </p>
+              <p
+                className="font-medium whitespace-nowrap"
+                style={{ fontSize: '16px', lineHeight: 1.15, color: 'rgba(0,0,0,0.55)', margin: 0, marginTop: '6px' }}
+              >
+                智慧学习平台
+              </p>
+            </div>
           </div>
           
           <button
