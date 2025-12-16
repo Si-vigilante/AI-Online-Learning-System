@@ -30,9 +30,13 @@ db.data = db.data || { qaQuestions: [], forumPosts: [] };
 // ModelScope / DeepSeek config
 const MODELSCOPE_BASE_URL = 'https://api-inference.modelscope.cn/v1';
 const MODELSCOPE_MODEL = process.env.MODELSCOPE_MODEL || 'deepseek-ai/DeepSeek-V3.2';
+const MODELSCOPE_TOKEN = process.env.MODELSCOPE_TOKEN || 'placeholder-token';
+if (!process.env.MODELSCOPE_TOKEN) {
+  console.warn('[ppt-to-video] MODELSCOPE_TOKEN not set, AI routes may fail but video routes still work.');
+}
 const openai = new OpenAI({
   baseURL: MODELSCOPE_BASE_URL,
-  apiKey: process.env.MODELSCOPE_TOKEN
+  apiKey: MODELSCOPE_TOKEN
 });
 
 const systemPrompts = {

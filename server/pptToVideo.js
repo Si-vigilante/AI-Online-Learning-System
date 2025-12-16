@@ -5,11 +5,30 @@ const fs = require('fs');
 const fsp = require('fs/promises');
 const os = require('os');
 const { Readable } = require('stream');
-const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js');
 const { createCanvas } = require('@napi-rs/canvas');
 const { vodOpenapi, edit } = require('@volcengine/openapi');
+const { TosClient } = require('@volcengine/tos-sdk');
+const axios = require('axios');
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = require.resolve('pdfjs-dist/legacy/build/pdf.worker.js');
+let pdfjsLibPromise = null;
+const workerFilePath = require.resolve('pdfjs-dist/legacy/build/pdf.worker.mjs');
+const loadPdfJs = async () => {
+  if (!pdfjsLibPromise) {
+    pdfjsLibPromise = import('pdfjs-dist/legacy/build/pdf.mjs');
+  }
+  const lib = await pdfjsLibPromise;
+  if (!lib.GlobalWorkerOptions.workerSrc) {
+    try {
+      const workerCode = await fsp.readFile(workerFilePath, 'utf8');
+      const workerDataUrl = `data:application/javascript;base64,${Buffer.from(workerCode, 'utf8').toString('base64')}`;
+      lib.GlobalWorkerOptions.workerSrc = workerDataUrl;
+    } catch (err) {
+      console.warn('[ppt-to-video] inline worker failed, fallback to disableWorker', err?.message || err);
+      lib.GlobalWorkerOptions.workerSrc = '';
+    }
+  }
+  return lib;
+};
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -19,6 +38,44 @@ const upload = multer({
 const pptVideoTasks = new Map(); // taskId -> task data
 const vodService = vodOpenapi.defaultService;
 const editService = edit.defaultService;
+let tosClient = null;
+let tosEndpointHost = '';
+let tosBucket = '';
+let tosRegion = '';
+
+const ensureTosClient = () => {
+  const accessKeyId = process.env.VOLC_ACCESS_KEY_ID || process.env.VOLC_ACCESSKEY;
+  const secretKey = process.env.VOLC_SECRET_ACCESS_KEY || process.env.VOLC_SECRETKEY;
+  const bucket = (process.env.VOLC_TOS_BUCKET || '').trim();
+  const region = (process.env.VOLC_TOS_REGION || '').trim();
+  const endpoint = (process.env.VOLC_TOS_ENDPOINT || '').trim();
+  if (!accessKeyId || !secretKey || !bucket || !region || !endpoint) {
+    throw new Error(
+      '缺少 TOS 配置：请设置 VOLC_ACCESS_KEY_ID、VOLC_SECRET_ACCESS_KEY、VOLC_TOS_BUCKET、VOLC_TOS_REGION、VOLC_TOS_ENDPOINT'
+    );
+  }
+  if (!tosClient) {
+    let endpointHost = '';
+    try {
+      const url = new URL(endpoint);
+      endpointHost = url.host;
+    } catch (e) {
+      throw new Error(`TOS endpoint 无法解析，请检查 VOLC_TOS_ENDPOINT，当前值：${endpoint}`);
+    }
+    tosEndpointHost = endpointHost;
+    tosBucket = bucket;
+    tosRegion = region;
+    tosClient = new TosClient({
+      accessKeyId,
+      accessKeySecret: secretKey,
+      bucket,
+      region,
+      endpoint
+    });
+    console.log('[TOS]', { endpoint, region, bucket });
+  }
+  return { client: tosClient, bucket, region, endpointHost: tosEndpointHost };
+};
 
 const parseResolution = (value = '1280x720') => {
   const match = `${value}`.match(/(\d+)\s*x\s*(\d+)/);
@@ -68,14 +125,26 @@ const failTask = (taskId, step, err) => {
   });
 };
 
+const toUint8 = (data) => {
+  if (!data) return new Uint8Array();
+  if (data instanceof Uint8Array && !Buffer.isBuffer(data)) return data;
+  if (Buffer.isBuffer(data)) {
+    return new Uint8Array(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength));
+  }
+  return new Uint8Array(data);
+};
+
 const renderPdfToImages = async ({ buffer, resolution, tempDir, taskId }) => {
+  const pdfjsLib = await loadPdfJs();
+  const pdfData = toUint8(buffer);
   const { width: targetWidth, height: targetHeight } = resolution;
   const images = [];
   const loadingTask = pdfjsLib.getDocument({
-    data: buffer,
+    data: pdfData,
     useSystemFonts: true,
     isEvalSupported: false,
-    disableFontFace: false
+    disableFontFace: false,
+    disableWorker: true
   });
   let pdf;
   try {
@@ -122,28 +191,63 @@ const renderPdfToImages = async ({ buffer, resolution, tempDir, taskId }) => {
   return images;
 };
 
-const uploadImagesToVod = async ({ images, taskId }) => {
-  const { spaceName } = ensureVolcClient();
+const sanitizeUploadName = (fileName, idx, taskId) => {
+  const safe = (fileName || `page-${idx + 1}.png`).replace(/[\\/:*?"<>|]+/g, '_').trim();
+  const parts = safe.split('.');
+  let base = parts[0] || `page-${idx + 1}`;
+  let ext = parts.length > 1 ? parts.pop() : 'png';
+  ext = (ext || 'png').toLowerCase().replace(/^\.+/, '') || 'png';
+  base = base.replace(/\.+$/, '');
+  return `ppt-video/${taskId}/${base}.${ext}`;
+};
+
+const uploadImagesToTos = async ({ images, taskId }) => {
+  const { client, bucket, endpointHost } = ensureTosClient();
+  const bucketHost = `https://${bucket}.${endpointHost}`;
   const uploaded = [];
   for (let i = 0; i < images.length; i++) {
     const img = images[i];
     try {
-      const res = await vodService.UploadMaterial({
-        SpaceName: spaceName,
-        FileType: 'image',
-        FileName: img.fileName,
-        FileExtension: 'png',
-        FileSize: img.buffer.length,
-        Content: Readable.from(img.buffer)
+      const finalName = sanitizeUploadName(img.fileName, i, taskId);
+      const putInput = {
+        bucket,
+        key: finalName,
+        body: img.buffer,
+        contentLength: img.buffer.length,
+        contentType: 'image/png'
+      };
+      console.log(`[ppt-to-video][${taskId}] uploading image to TOS`, {
+        bucket,
+        region,
+        key: finalName,
+        size: img.buffer.length
       });
-      const error = res?.ResponseMetadata?.Error;
-      if (error && error.Code) {
-        throw new Error(`${error.Code}: ${error.Message}`);
+      await client.putObject(putInput);
+      let url = `${bucketHost}/${encodeURIComponent(finalName).replace(/%2F/g, '/')}`;
+      try {
+        const signed = await client.getPreSignedUrl({
+          method: 'GET',
+          key: finalName,
+          expires: 3600
+        });
+        if (signed?.signedUrl) {
+          url = signed.signedUrl;
+        }
+      } catch (e) {
+        console.warn(`[ppt-to-video][${taskId}] presign failed, fallback to public URL`, e?.message || e);
       }
-      const data = res?.Result?.Data || res?.Result || {};
+      try {
+        // quick availability check
+        const headRes = await axios.head(url, { validateStatus: (s) => s < 500 });
+        if (headRes.status >= 400) {
+          throw new Error(`图片 URL 不可访问: ${url} status=${headRes.status}`);
+        }
+      } catch (e) {
+        throw new Error(`图片 URL 不可访问: ${url} detail=${e?.message || e}`);
+      }
       uploaded.push({
-        mid: data.Mid || data.MaterialId,
-        sourceUri: data?.SourceInfo?.StoreUri || data?.PosterUri || data?.SourceInfo?.FileId,
+        url,
+        key: finalName,
         fileName: img.fileName
       });
       setTask(taskId, {
@@ -152,7 +256,9 @@ const uploadImagesToVod = async ({ images, taskId }) => {
         message: `正在上传素材 ${i + 1}/${images.length}`
       });
     } catch (err) {
-      throw new Error(`上传 ${img.fileName} 失败：${err?.message || err}`);
+      console.error(`[ppt-to-video][${taskId}] upload image failed`, err);
+      const detail = err?.message || err;
+      throw new Error(`上传 ${img.fileName} 失败：${detail}`);
     }
   }
   return uploaded;
@@ -170,7 +276,7 @@ const submitDirectEdit = async ({ uploadedImages, resolution, durationPerSlide, 
     Elements: [
       {
         Type: 'image',
-        Source: img.mid || img.sourceUri,
+        Source: img.url,
         Duration: durationMs,
         StartTime: 0
       }
@@ -270,7 +376,7 @@ const processTask = async (taskId) => {
     });
     setTask(taskId, { buffer: null });
     setTask(taskId, { status: 'uploading', message: '开始上传图片素材', progress: 45 });
-    const uploaded = await uploadImagesToVod({ images, taskId });
+    const uploaded = await uploadImagesToTos({ images, taskId });
     const { reqId } = await submitDirectEdit({
       uploadedImages: uploaded,
       resolution: task.resolution,
@@ -317,8 +423,9 @@ const createTask = async (req, res) => {
     const taskId = Math.random().toString(36).slice(2, 10);
     const tempDir = path.join(os.tmpdir(), 'ppt-to-video', taskId);
     await fsp.mkdir(tempDir, { recursive: true });
+    const pdfBytes = toUint8(file.buffer);
     const pdfPath = path.join(tempDir, 'upload.pdf');
-    await fsp.writeFile(pdfPath, file.buffer);
+    await fsp.writeFile(pdfPath, pdfBytes);
     const task = {
       id: taskId,
       status: 'queued',
@@ -329,7 +436,7 @@ const createTask = async (req, res) => {
       transition,
       durationPerSlide,
       resolution,
-      buffer: file.buffer,
+      buffer: pdfBytes,
       tempDir,
       createdAt: Date.now(),
       logs: [{ ts: Date.now(), message: '任务创建成功' }]
