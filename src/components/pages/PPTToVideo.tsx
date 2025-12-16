@@ -8,9 +8,15 @@ interface PPTToVideoProps {
   onNavigate: (page: string) => void;
 }
 
+type SlidesMeta = {
+  pages?: number | null;
+  size: string;
+  pageError?: string;
+};
+
 export function PPTToVideo({ onNavigate }: PPTToVideoProps) {
   const [file, setFile] = useState<File | null>(null);
-  const [slidesMeta, setSlidesMeta] = useState<{ pages: number; size: string } | null>(null);
+  const [slidesMeta, setSlidesMeta] = useState<SlidesMeta | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [hasGenerated, setHasGenerated] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -57,7 +63,7 @@ export function PPTToVideo({ onNavigate }: PPTToVideoProps) {
     setVideoUrl('');
     setDownloadUrl('');
     setSlidesMeta({
-      pages: Math.max(1, Math.min(80, Math.round(picked.size / 250000))),
+      pages: undefined,
       size: `${(picked.size / 1024 / 1024).toFixed(1)} MB`
     });
     setProgress(0);
@@ -86,9 +92,19 @@ export function PPTToVideo({ onNavigate }: PPTToVideoProps) {
       if (!res.ok) {
         throw new Error(data?.error || '创建任务失败');
       }
+      const sizeLabel = slidesMeta?.size || `${(file.size / 1024 / 1024).toFixed(1)} MB`;
+      setSlidesMeta({
+        size: sizeLabel,
+        pages: data.pageCount ?? null,
+        pageError: data.pageCountError
+      });
       setTaskId(data.taskId);
       setStatus(data.status || 'queued');
       setMessage('任务已创建，开始处理...');
+      if (data.pageCountError) {
+        // console for debugging page count issues, per requirement
+        console.error('页数解析失败', data.pageCountError);
+      }
     } catch (err: any) {
       setError(err?.message || '创建任务失败');
       setIsGenerating(false);
@@ -137,12 +153,20 @@ export function PPTToVideo({ onNavigate }: PPTToVideoProps) {
 
   const isBusy = isGenerating && status !== 'failed';
   const allowGenerate = !!file && !isBusy;
+  const pageLabel =
+    slidesMeta?.pages != null
+      ? `共 ${slidesMeta.pages} 页`
+      : slidesMeta?.pageError
+        ? '页数解析失败'
+        : slidesMeta
+          ? '页数解析中'
+          : '等待上传';
 
   return (
-    <div className="min-h-screen bg-[#F8F9FA]">
+    <div className="min-h-screen bg-[#F8F9FA] pt-30">
       <div className="container-custom py-8">
         <div className="mb-6">
-          <h2 className="mb-2">PPT 转视频（上传 PDF 版）</h2>
+          <h2 className="mb-2">PPT 转视频</h2>
           <p className="text-[#ADB5BD]">请先在 WPS/PowerPoint 中将 PPT 另存为 PDF，再上传生成视频</p>
         </div>
         
@@ -179,12 +203,12 @@ export function PPTToVideo({ onNavigate }: PPTToVideoProps) {
                   <div className="flex items-center gap-3">
                     <div className="w-12 h-12 bg-[#FF6B6B] rounded-lg flex items-center justify-center">
                       <FileText className="w-6 h-6 text-white" />
-                    </div>
-                    <div>
-                      <h5>{file.name}</h5>
-                      <p className="text-xs text-[#ADB5BD]">{slidesMeta?.size || '文件大小'} · 预估 {slidesMeta?.pages || 0} 页</p>
-                    </div>
                   </div>
+                  <div>
+                    <h5>{file.name}</h5>
+                    <p className="text-xs text-[#ADB5BD]">{slidesMeta?.size || '文件大小'} · {pageLabel}</p>
+                  </div>
+                </div>
                   <Button variant="ghost" size="sm" onClick={() => { setFile(null); setSlidesMeta(null); setTaskId(null); }}>
                     重新上传
                   </Button>

@@ -30,6 +30,19 @@ const loadPdfJs = async () => {
   return lib;
 };
 
+const buildPdfOptions = (pdfData) => ({
+  data: pdfData,
+  useSystemFonts: true,
+  isEvalSupported: false,
+  disableFontFace: false,
+  disableWorker: true,
+  disableRange: true,
+  disableStream: true,
+  disableAutoFetch: true,
+  isOffscreenCanvasSupported: false,
+  disableCreateObjectURL: true
+});
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 50 * 1024 * 1024 }
@@ -43,16 +56,28 @@ let tosEndpointHost = '';
 let tosBucket = '';
 let tosRegion = '';
 
-const ensureTosClient = () => {
+const ensureTosClient = (taskId) => {
   const accessKeyId = process.env.VOLC_ACCESS_KEY_ID || process.env.VOLC_ACCESSKEY;
   const secretKey = process.env.VOLC_SECRET_ACCESS_KEY || process.env.VOLC_SECRETKEY;
   const bucket = (process.env.VOLC_TOS_BUCKET || '').trim();
   const region = (process.env.VOLC_TOS_REGION || '').trim();
   const endpoint = (process.env.VOLC_TOS_ENDPOINT || '').trim();
-  if (!accessKeyId || !secretKey || !bucket || !region || !endpoint) {
-    throw new Error(
-      '缺少 TOS 配置：请设置 VOLC_ACCESS_KEY_ID、VOLC_SECRET_ACCESS_KEY、VOLC_TOS_BUCKET、VOLC_TOS_REGION、VOLC_TOS_ENDPOINT'
-    );
+  if (!bucket || !region || !endpoint) {
+    const message = `[ENV MISSING] bucket=${bucket} region=${region} endpoint=${endpoint}`;
+    if (taskId) {
+      setTask(taskId, { log: { ts: Date.now(), message } });
+    }
+    throw new Error(message);
+  }
+  if (!endpoint.startsWith('https://tos-')) {
+    const message = `[ENV INVALID] endpoint=${endpoint}`;
+    if (taskId) {
+      setTask(taskId, { log: { ts: Date.now(), message } });
+    }
+    throw new Error(message);
+  }
+  if (!accessKeyId || !secretKey) {
+    throw new Error('缺少 TOS 配置：请设置 VOLC_ACCESS_KEY_ID、VOLC_SECRET_ACCESS_KEY');
   }
   if (!tosClient) {
     let endpointHost = '';
@@ -72,9 +97,13 @@ const ensureTosClient = () => {
       region,
       endpoint
     });
-    console.log('[TOS]', { endpoint, region, bucket });
+    const tosInfo = { bucket, region, endpoint };
+    console.log('[TOS ENV]', tosInfo);
+    if (taskId) {
+      setTask(taskId, { log: { ts: Date.now(), message: `[TOS ENV] ${JSON.stringify(tosInfo)}` } });
+    }
   }
-  return { client: tosClient, bucket, region, endpointHost: tosEndpointHost };
+  return { client: tosClient, bucket, region, endpointHost: tosEndpointHost, endpoint };
 };
 
 const parseResolution = (value = '1280x720') => {
@@ -139,13 +168,7 @@ const renderPdfToImages = async ({ buffer, resolution, tempDir, taskId }) => {
   const pdfData = toUint8(buffer);
   const { width: targetWidth, height: targetHeight } = resolution;
   const images = [];
-  const loadingTask = pdfjsLib.getDocument({
-    data: pdfData,
-    useSystemFonts: true,
-    isEvalSupported: false,
-    disableFontFace: false,
-    disableWorker: true
-  });
+  const loadingTask = pdfjsLib.getDocument(buildPdfOptions(pdfData));
   let pdf;
   try {
     pdf = await loadingTask.promise;
@@ -191,6 +214,14 @@ const renderPdfToImages = async ({ buffer, resolution, tempDir, taskId }) => {
   return images;
 };
 
+const getPdfPageCount = async (buffer) => {
+  const pdfjsLib = await loadPdfJs();
+  const pdfData = toUint8(buffer);
+  const loadingTask = pdfjsLib.getDocument(buildPdfOptions(pdfData));
+  const pdf = await loadingTask.promise;
+  return pdf.numPages || 0;
+};
+
 const sanitizeUploadName = (fileName, idx, taskId) => {
   const safe = (fileName || `page-${idx + 1}.png`).replace(/[\\/:*?"<>|]+/g, '_').trim();
   const parts = safe.split('.');
@@ -202,8 +233,8 @@ const sanitizeUploadName = (fileName, idx, taskId) => {
 };
 
 const uploadImagesToTos = async ({ images, taskId }) => {
-  const { client, bucket, endpointHost } = ensureTosClient();
-  const bucketHost = `https://${bucket}.${endpointHost}`;
+  const { client, bucket, endpointHost, region } = ensureTosClient(taskId);
+  const publicBase = `https://${bucket}.${endpointHost}`;
   const uploaded = [];
   for (let i = 0; i < images.length; i++) {
     const img = images[i];
@@ -223,7 +254,7 @@ const uploadImagesToTos = async ({ images, taskId }) => {
         size: img.buffer.length
       });
       await client.putObject(putInput);
-      let url = `${bucketHost}/${encodeURIComponent(finalName).replace(/%2F/g, '/')}`;
+      let url = `${publicBase}/${encodeURIComponent(finalName).replace(/%2F/g, '/')}`;
       try {
         const signed = await client.getPreSignedUrl({
           method: 'GET',
@@ -426,6 +457,14 @@ const createTask = async (req, res) => {
     const pdfBytes = toUint8(file.buffer);
     const pdfPath = path.join(tempDir, 'upload.pdf');
     await fsp.writeFile(pdfPath, pdfBytes);
+    let pageCount = null;
+    let pageCountError = '';
+    try {
+      pageCount = await getPdfPageCount(pdfBytes);
+    } catch (err) {
+      pageCountError = err?.message || String(err);
+      console.warn(`[ppt-to-video][${taskId}] parse page count failed`, pageCountError);
+    }
     const task = {
       id: taskId,
       status: 'queued',
@@ -438,12 +477,14 @@ const createTask = async (req, res) => {
       resolution,
       buffer: pdfBytes,
       tempDir,
+      pageCount,
       createdAt: Date.now(),
       logs: [{ ts: Date.now(), message: '任务创建成功' }]
     };
     pptVideoTasks.set(taskId, task);
     processTask(taskId);
-    return res.json({ taskId, status: 'queued' });
+    const fileSizeMB = Number((pdfBytes.length / 1024 / 1024).toFixed(1));
+    return res.json({ taskId, status: 'queued', fileName: file.originalname, fileSizeMB, pageCount, pageCountError });
   } catch (err) {
     console.error('create ppt-to-video task failed', err);
     return res.status(500).json({ error: err?.message || '创建任务失败', detail: err?.stack || err });
