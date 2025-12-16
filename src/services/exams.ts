@@ -1,4 +1,5 @@
 import type { ExamPaper } from '../types/exam';
+import { safeJson } from '../utils/safeJson';
 
 const localKey = (courseId: string) => `examPapers:${courseId || 'default'}`;
 
@@ -16,11 +17,12 @@ export async function generateExamPaper(payload: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   });
-  const data = await res.json();
   if (!res.ok) {
-    throw new Error(data?.error?.message || data?.error || '生成失败');
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Generate failed: ${res.status} ${errText}`);
   }
-  return data.paper as ExamPaper;
+  const data = await safeJson<{ paper: ExamPaper }>(res);
+  return data.paper;
 }
 
 export function saveExamPaperLocal(paper: ExamPaper) {

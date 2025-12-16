@@ -10,6 +10,8 @@ const PptxGenJS = require('pptxgenjs');
 const dayjs = require('dayjs');
 const { getMockCourseContent } = require('./mocks/courseContent');
 const { QUESTION_BANK } = require('./mocks/questionBank');
+const { randomUUID } = require('crypto');
+const multer = require('multer');
 
 const app = express();
 const server = http.createServer(app);
@@ -25,10 +27,11 @@ app.use(express.json());
 // Lowdb setup
 const dbFile = path.join(__dirname, 'db.json');
 const adapter = new JSONFileSync(dbFile);
-const db = new LowSync(adapter, { qaQuestions: [], forumPosts: [], examPapers: [] });
+const db = new LowSync(adapter, { qaQuestions: [], forumPosts: [], examPapers: [], examGrades: [] });
 db.read();
-db.data = db.data || { qaQuestions: [], forumPosts: [], examPapers: [] };
+db.data = db.data || { qaQuestions: [], forumPosts: [], examPapers: [], examGrades: [] };
 db.data.examPapers = db.data.examPapers || [];
+db.data.examGrades = db.data.examGrades || [];
 
 // ModelScope / DeepSeek config
 const MODELSCOPE_BASE_URL = 'https://api-inference.modelscope.cn/v1';
@@ -318,7 +321,7 @@ const buildExamPrompt = ({ courseContext, knowledgeScope, difficulty, plan }) =>
       }
     ]
   };
-  const sys = `你是严格的教育测验出题助手。只输出 JSON，不要多余文字或代码块。题目必须可用于自动判分，覆盖给定知识点与课程内容。客观题必须给正确答案与解析；主观题给参考答案与评分要点。`;
+  const sys = `你是严格的教育测验出题助手。必须且只能输出一个合法 JSON 对象。不要输出 Markdown、不要代码块、不要解释或注释。如果无法生成完整 JSON，请输出 {"error":"generation_failed"}。题目必须可用于自动判分，覆盖给定知识点与课程内容。客观题必须给正确答案与解析；主观题给参考答案与评分要点。`;
   const user = `
 课程内容片段（可截断）：${courseContext}
 知识点范围：${knowledgeScope.join('，') || '未指定'}
@@ -334,6 +337,94 @@ const buildExamPrompt = ({ courseContext, knowledgeScope, difficulty, plan }) =>
   return [
     { role: 'system', content: sys },
     { role: 'user', content: user }
+  ];
+};
+
+// ===== Grading helpers =====
+const mapQuestionsById = (paper) => {
+  const map = new Map();
+  (paper?.questions || []).forEach((q) => {
+    map.set(q.id, q);
+  });
+  return map;
+};
+
+const gradeObjective = ({ question, studentAnswer }) => {
+  const maxScore = Number(question.score) || defaultScoreByType[question.type] || 0;
+  if (!studentAnswer) {
+    return {
+      questionId: question.id,
+      correct: false,
+      score: 0,
+      maxScore,
+      correctAnswer: question.answer,
+      studentAnswer,
+      explanation: question.explanation || ''
+    };
+  }
+  if (question.type === 'tf') {
+    const correct = Boolean(studentAnswer.value) === Boolean(question.answer);
+    return {
+      questionId: question.id,
+      correct,
+      score: correct ? maxScore : 0,
+      maxScore,
+      correctAnswer: question.answer,
+      studentAnswer,
+      explanation: question.explanation || ''
+    };
+  }
+  const studentChoices = Array.isArray(studentAnswer.selected) ? studentAnswer.selected : [];
+  const correctChoices = Array.isArray(question.answer) ? question.answer : [];
+  const correct =
+    studentChoices.length === correctChoices.length &&
+    studentChoices.every((c) => correctChoices.includes(c));
+  return {
+    questionId: question.id,
+    correct,
+    score: correct ? maxScore : 0,
+    maxScore,
+    correctAnswer: correctChoices,
+    studentAnswer: studentChoices,
+    explanation: question.explanation || ''
+  };
+};
+
+const validateSubjectiveItem = (item, maxScore, questionId) => {
+  if (!item || typeof item !== 'object') return null;
+  const safeScore = Math.max(0, Math.min(maxScore, Number(item.score) || 0));
+  return {
+    questionId,
+    score: safeScore,
+    maxScore,
+    studentAnswerText: item.studentAnswerText || '',
+    referenceAnswer: item.referenceAnswer || '',
+    rubric: Array.isArray(item.rubric) ? item.rubric : [],
+    strengths: Array.isArray(item.strengths) ? item.strengths : [],
+    weaknesses: Array.isArray(item.weaknesses) ? item.weaknesses : [],
+    suggestions: Array.isArray(item.suggestions) ? item.suggestions : [],
+    keywordCoverage: Array.isArray(item.keywordCoverage) ? item.keywordCoverage : undefined,
+    semanticSimilarity: typeof item.semanticSimilarity === 'number' ? item.semanticSimilarity : undefined
+  };
+};
+
+const buildSubjectiveGradingPrompt = ({ questionId, question, studentAnswerText }) => {
+  const sys =
+    '你是严格的课程助教批改器。必须按 rubric 逐项给分，score 为 0..maxScore 的数字。只输出 JSON，对象本身，不要 Markdown。';
+  const user = {
+    questionId,
+    stem: question.stem,
+    knowledgePoints: question.knowledgePoints || [],
+    difficulty: question.difficulty || '中等',
+    maxScore: Number(question.score) || defaultScoreByType[question.type] || 0,
+    studentAnswerText,
+    referenceAnswer: question.referenceAnswer || '',
+    rubric: question.gradingRubric || question.rubric || [{ item: '要点完整', points: Number(question.score) || 5 }],
+    keywords: question.keywords || question.knowledgePoints || []
+  };
+  return [
+    { role: 'system', content: sys },
+    { role: 'user', content: `请按以下 JSON schema 输出，不要代码块：${JSON.stringify(user)}` }
   ];
 };
 // Helpers
@@ -371,8 +462,12 @@ const callDeepSeekExam = async ({ messages, retry = 0 }) => {
       responseFormat: { type: 'json_object' }
     });
     const content = completion?.choices?.[0]?.message?.content;
-    if (!content) throw new Error('模型无返回');
-    let data = content;
+    const raw = typeof content === 'string' ? content : JSON.stringify(content || '');
+    console.log('[LLM raw length]', raw?.length || 0);
+    console.log('[LLM raw head]', raw?.slice(0, 200) || '');
+    console.log('[LLM raw tail]', raw?.slice(-200) || '');
+    if (!raw) throw new Error('模型无返回');
+    let data = raw;
     if (typeof data === 'string') {
       data = JSON.parse(data);
     }
@@ -390,6 +485,34 @@ const callDeepSeekExam = async ({ messages, retry = 0 }) => {
         }
       ];
       return callDeepSeekExam({ messages: fixMessages, retry: retry + 1 });
+    }
+    throw err;
+  }
+};
+
+const callDeepSeekSubjective = async ({ messages, retry = 0 }) => {
+  const maxRetry = 2;
+  try {
+    const completion = await callDeepSeek({
+      messages,
+      stream: false,
+      enableThinking: false,
+      responseFormat: { type: 'json_object' }
+    });
+    const content = completion?.choices?.[0]?.message?.content;
+    if (!content) throw new Error('模型无返回');
+    const data = typeof content === 'string' ? JSON.parse(content) : content;
+    return { data, usage: completion?.usage, retries: retry };
+  } catch (err) {
+    if (retry < maxRetry) {
+      const fix = [
+        ...messages,
+        {
+          role: 'user',
+          content: `上次解析失败：${err?.message || err}。请直接输出 JSON 对象，字段完整，score 为 0..maxScore`
+        }
+      ];
+      return callDeepSeekSubjective({ messages: fix, retry: retry + 1 });
     }
     throw err;
   }
@@ -1030,6 +1153,123 @@ app.post('/api/exams', (req, res) => {
   db.data.examPapers.unshift(paper);
   db.write();
   res.json({ ok: true });
+});
+
+app.post('/api/grading/grade', async (req, res) => {
+  try {
+    const { paperId, submission } = req.body || {};
+    if (!paperId) return res.status(400).json({ error: { message: '缺少 paperId' } });
+    db.read();
+    const paper = (db.data.examPapers || []).find((p) => p.id === paperId);
+    if (!paper) return res.status(404).json({ error: { message: '试卷不存在' } });
+    const answers = submission?.answers || {};
+    const rawText = submission?.rawText || '';
+    const objective = [];
+    const subjective = [];
+
+    for (const q of paper.questions || []) {
+      const ans = answers[q.id];
+      if (q.type === 'single' || q.type === 'multiple' || q.type === 'tf') {
+        objective.push(gradeObjective({ question: q, studentAnswer: ans }));
+      } else {
+        const studentAnswerText = ans?.text || rawText || '';
+        const messages = buildSubjectiveGradingPrompt({ questionId: q.id, question: q, studentAnswerText });
+        const resp = await callDeepSeekSubjective({ messages, retry: 0 });
+        const validated = validateSubjectiveItem(
+          resp.data,
+          Number(q.score) || defaultScoreByType[q.type] || 0,
+          q.id
+        );
+        if (!validated) throw new Error('主观题批改解析失败');
+        subjective.push(validated);
+      }
+    }
+
+    const maxScore = paper.questions.reduce(
+      (s, q) => s + (Number(q.score) || defaultScoreByType[q.type] || 0),
+      0
+    );
+    const totalScore =
+      objective.reduce((s, o) => s + (Number(o.score) || 0), 0) +
+      subjective.reduce((s, o) => s + (Number(o.score) || 0), 0);
+
+    const result = {
+      id: genId(),
+      paperId,
+      submissionId: submission?.id || genId(),
+      gradedAt: new Date().toISOString(),
+      gradedBy: req.body?.gradedBy || 'teacher',
+      totalScore,
+      maxScore,
+      objective,
+      subjective,
+      meta: { model: MODELSCOPE_MODEL, confidence: 'medium' }
+    };
+
+    db.data.examGrades = db.data.examGrades || [];
+    db.data.examGrades.unshift(result);
+    db.write();
+    return res.json({ result });
+  } catch (err) {
+    console.error('grading failed', err);
+    return res.status(500).json({ error: { message: err?.message || '批改失败' } });
+  }
+});
+
+app.post('/api/grading/save', (req, res) => {
+  const { result } = req.body || {};
+  if (!result || !result.id) return res.status(400).json({ error: { message: '缺少 result' } });
+  db.read();
+  db.data.examGrades = db.data.examGrades || [];
+  db.data.examGrades = [result, ...db.data.examGrades].slice(0, 100);
+  db.write();
+  res.json({ ok: true });
+});
+
+// ===== Submission parse (minimal) =====
+const uploadParser = multer({ storage: multer.memoryStorage() });
+app.post('/api/submissions/parse', uploadParser.single('file'), async (req, res) => {
+  try {
+    const textBody = req.body?.text;
+    if (textBody && typeof textBody === 'string' && textBody.trim()) {
+      return res.json({
+        rawText: textBody.trim(),
+        answers: {},
+        submission: {
+          id: randomUUID(),
+          rawText: textBody.trim(),
+          answers: {},
+          source: 'paste',
+          submittedAt: new Date().toISOString()
+        }
+      });
+    }
+    const file = req.file;
+    if (!file) {
+      return res.status(400).json({ error: { code: 'BAD_REQUEST', message: '缺少文件或文本' } });
+    }
+    const mime = file.mimetype || '';
+    const ext = (file.originalname.split('.').pop() || '').toLowerCase();
+    if (!['txt', 'md'].includes(ext)) {
+      return res.status(400).json({ error: { code: 'UNSUPPORTED_FORMAT', message: '暂不支持该格式，请粘贴文本或上传 txt/md' } });
+    }
+    const rawText = file.buffer.toString('utf8');
+    return res.json({
+      rawText,
+      answers: {},
+      submission: {
+        id: randomUUID(),
+        rawText,
+        answers: {},
+        source: 'upload',
+        fileMeta: { name: file.originalname, size: file.size, mime },
+        submittedAt: new Date().toISOString()
+      }
+    });
+  } catch (err) {
+    console.error('parse submission failed', err);
+    return res.status(500).json({ error: '解析失败' });
+  }
 });
 
 // PPT -> Video (PDF -> PNG -> VOD)

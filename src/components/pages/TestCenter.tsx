@@ -1,10 +1,12 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Card } from '../design-system/Card';
 import { Button } from '../design-system/Button';
 import { FileText, Sparkles, Clock, Award, Plus, Play, Shield, Eye, Camera, Timer, Shuffle, BookOpenCheck, Loader2 } from 'lucide-react';
 import { UserProfile } from '../../services/auth';
 import { generateExamPaper, listExamPapersLocal, saveExamPaperLocal } from '../../services/exams';
+import { gradeSubmission, listGradingLocal, parseSubmission, saveGradingLocal } from '../../services/grading';
 import type { ExamPaper, Question } from '../../types/exam';
+import type { GradingResult } from '../../types/grading';
 
 interface TestCenterProps {
   onNavigate: (page: string) => void;
@@ -39,9 +41,15 @@ export function TestCenter({ onNavigate, currentUser }: TestCenterProps) {
   const [showPreview, setShowPreview] = useState(false);
   const [courseId] = useState('deep-learning');
   const [availablePapers, setAvailablePapers] = useState<ExamPaper[]>([]);
+  const [gradingText, setGradingText] = useState('');
+  const [gradingResult, setGradingResult] = useState<GradingResult | null>(null);
+  const [gradingHistory, setGradingHistory] = useState<GradingResult[]>([]);
+  const [saveMessage, setSaveMessage] = useState('');
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     setAvailablePapers(listExamPapersLocal(courseId));
+    setGradingHistory(listGradingLocal(courseId));
   }, [courseId]);
 
   const addKnowledge = () => {
@@ -53,6 +61,10 @@ export function TestCenter({ onNavigate, currentUser }: TestCenterProps) {
     }
     setAiConfig({ ...aiConfig, knowledge: [...aiConfig.knowledge, next] });
     setKnowledgeInput('');
+  };
+
+  const removeKnowledge = (target: string) => {
+    setAiConfig({ ...aiConfig, knowledge: aiConfig.knowledge.filter((k) => k !== target) });
   };
 
   const toggleQuestionType = (typeLabel: string) => {
@@ -106,6 +118,60 @@ export function TestCenter({ onNavigate, currentUser }: TestCenterProps) {
       return acc;
     }, {});
   }, [generatedPaper]);
+
+  const handleGrade = async () => {
+    if (!generatedPaper) {
+      setError('请先生成试卷');
+      return;
+    }
+    if (!gradingText.trim()) {
+      setError('请粘贴学生作答文本');
+      return;
+    }
+    setError(null);
+    setGenerating(true);
+    try {
+      const result = await gradeSubmission({
+        paperId: generatedPaper.id,
+        submission: { rawText: gradingText, answers: {} }
+      });
+      setGradingResult(result);
+      saveGradingLocal(result);
+      setGradingHistory(listGradingLocal(courseId));
+    } catch (err: any) {
+      setError(err?.message || '批改失败');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleSavePaper = () => {
+    if (!generatedPaper) return;
+    saveExamPaperLocal(generatedPaper);
+    setAvailablePapers(listExamPapersLocal(courseId));
+    setSaveMessage('已保存到本地试卷列表');
+    setTimeout(() => setSaveMessage(''), 1800);
+  };
+
+  const handleFilePick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setError(null);
+    setGenerating(true);
+    try {
+      const parsed = await parseSubmission({ file, paperId: generatedPaper?.id });
+      setGradingText(parsed?.rawText || '');
+    } catch (err: any) {
+      setError(err?.message || '解析失败');
+    } finally {
+      setGenerating(false);
+      e.target.value = '';
+    }
+  };
 
   const quizzes =
     availablePapers.length > 0
@@ -175,11 +241,26 @@ export function TestCenter({ onNavigate, currentUser }: TestCenterProps) {
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div className="p-3 bg-white/10 rounded-lg">
-                        <p className="text-xs opacity-80 mb-1">知识点范围</p>
+                        <p className="text-xs opacity-80 mb-1">知识点范围（可自定义增减）</p>
                         <div className="flex flex-wrap gap-2 mb-2">
                           {aiConfig.knowledge.map((k) => (
-                            <span key={k} className="px-3 py-1 bg-white/15 rounded-full text-xs">{k}</span>
+                            <span
+                              key={k}
+                              className="px-3 py-1 bg-white/15 rounded-full text-xs inline-flex items-center gap-2"
+                            >
+                              {k}
+                              <button
+                                type="button"
+                                className="text-white/70 hover:text-white"
+                                onClick={() => removeKnowledge(k)}
+                              >
+                                ×
+                              </button>
+                            </span>
                           ))}
+                          {!aiConfig.knowledge.length && (
+                            <span className="text-xs text-white/70">暂无知识点，可输入后添加</span>
+                          )}
                         </div>
                         <div className="flex gap-2">
                           <input
@@ -280,6 +361,95 @@ export function TestCenter({ onNavigate, currentUser }: TestCenterProps) {
               </Card>
             )}
 
+            {resolvedRole === 'teacher' && (
+              <Card className="p-6 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-5 h-5 text-[#4C6EF5]" />
+                    <h4 className="mb-0">智能批改（教师端）</h4>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-sm text-[#ADB5BD] mb-2">粘贴学生作答文本或上传 txt/md 文件</p>
+                    <textarea
+                      className="w-full h-40 border-2 border-[#E9ECEF] rounded-lg p-3 text-sm focus:border-[#4C6EF5] outline-none"
+                      placeholder="粘贴作答内容..."
+                      value={gradingText}
+                      onChange={(e) => setGradingText(e.target.value)}
+                    />
+                    <div className="flex flex-wrap gap-3 mt-3">
+                      <Button size="sm" onClick={handleGrade} disabled={generating || !generatedPaper}>
+                        {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                        {generating ? '批改中...' : '开始批改'}
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setGradingText('')}>
+                        清空
+                      </Button>
+                      <Button size="sm" variant="secondary" onClick={handleFilePick} disabled={generating}>
+                        上传作答文件
+                      </Button>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept=".txt,.md"
+                        className="hidden"
+                        onChange={handleFileChange}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-sm text-[#ADB5BD]">历史批改（本地）</p>
+                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                      {gradingHistory.map((g) => (
+                        <div key={g.id} className="p-2 border border-[#E9ECEF] rounded-lg text-sm">
+                          <div className="flex items-center justify-between">
+                            <span>{g.totalScore}/{g.maxScore}</span>
+                            <span className="text-xs text-[#ADB5BD]">{new Date(g.gradedAt).toLocaleString()}</span>
+                          </div>
+                        </div>
+                      ))}
+                      {!gradingHistory.length && <p className="text-sm text-[#ADB5BD]">暂无记录</p>}
+                    </div>
+                  </div>
+                </div>
+                {gradingResult && (
+                  <div className="mt-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h5 className="mb-0">批改结果</h5>
+                      <span className="text-sm text-[#37B24D]">{gradingResult.totalScore}/{gradingResult.maxScore}</span>
+                    </div>
+                    <div className="space-y-3">
+                      {gradingResult.objective.map((o) => (
+                        <div key={o.questionId} className="p-3 bg-[#F8F9FA] rounded-lg border border-[#E9ECEF] text-sm">
+                          <div className="flex items-center justify-between mb-1">
+                            <span>题目 {o.questionId}</span>
+                            <span>{o.score}/{o.maxScore} {o.correct ? '✓' : '✗'}</span>
+                          </div>
+                          <p className="text-xs text-[#ADB5BD]">学生答案：{JSON.stringify(o.studentAnswer)}</p>
+                          <p className="text-xs text-[#ADB5BD]">正确答案：{JSON.stringify(o.correctAnswer)}</p>
+                          {o.explanation && <p className="text-xs text-[#ADB5BD] mt-1">解析：{o.explanation}</p>}
+                        </div>
+                      ))}
+                      {gradingResult.subjective.map((s) => (
+                        <div key={s.questionId} className="p-3 bg-[#FFF4E6] rounded-lg border border-[#FFE8CC] text-sm">
+                          <div className="flex items-center justify-between mb-1">
+                            <span>题目 {s.questionId}</span>
+                            <span>{s.score}/{s.maxScore}</span>
+                          </div>
+                          <p className="text-xs text-[#495057] mb-1">学生作答：{s.studentAnswerText}</p>
+                          <p className="text-xs text-[#ADB5BD]">参考：{s.referenceAnswer}</p>
+                          <p className="text-xs text-[#37B24D] mt-1">优点：{s.strengths.join('；') || '未识别'}</p>
+                          <p className="text-xs text-[#C92A2A]">扣分点：{s.weaknesses.join('；') || '未识别'}</p>
+                          <p className="text-xs text-[#845EF7]">建议：{s.suggestions.join('；') || '—'}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </Card>
+            )}
+
             {showPreview && generatedPaper && (
               <Card className="p-6 shadow-sm">
                 <div className="flex items-center justify-between mb-4">
@@ -290,13 +460,14 @@ export function TestCenter({ onNavigate, currentUser }: TestCenterProps) {
                     </p>
                   </div>
                   <div className="flex gap-2">
-                    <Button size="sm" variant="secondary" onClick={() => saveExamPaperLocal(generatedPaper)}>
+                    <Button size="sm" variant="secondary" onClick={handleSavePaper}>
                       保存试卷
                     </Button>
                     <Button size="sm" variant="ghost" onClick={handleGenerate} disabled={generating}>
                       重新生成
                     </Button>
                   </div>
+                  {saveMessage && <p className="text-xs text-[#37B24D] mt-2">{saveMessage}</p>}
                 </div>
                 <div className="space-y-4">
                   {Object.entries(groupedQuestions).map(([type, list]) => (
