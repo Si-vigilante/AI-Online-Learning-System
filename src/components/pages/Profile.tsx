@@ -362,29 +362,31 @@ export function Profile({ onNavigate, currentUser, onProfileUpdate }: ProfilePro
               </div>
             </Card>
             
-            {/* Achievements */}
-            <Card className="p-6">
-              <h4 className="mb-6">成就徽章</h4>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {achievements.map((achievement) => (
-                  <div
-                    key={achievement.id}
-                    className={`p-4 rounded-xl text-center transition-all ${
-                      achievement.earned
-                        ? 'bg-gradient-to-br from-[#FFD43B]/20 to-[#FFA94D]/20 border-2 border-[#FFD43B]/50'
-                        : 'bg-[#F8F9FA] opacity-50'
-                    }`}
-                  >
-                    <div className="text-4xl mb-2">{achievement.icon}</div>
-                    <h5 className="text-sm mb-1">{achievement.title}</h5>
-                    <p className="text-xs text-[#ADB5BD]">{achievement.description}</p>
-                    {achievement.earned && achievement.date && (
-                      <p className="text-xs text-[#FFD43B] mt-2">{achievement.date}</p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </Card>
+            {/* Achievements - students only */}
+            {profile.role === 'student' && (
+              <Card className="p-6">
+                <h4 className="mb-6">成就徽章</h4>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  {achievements.map((achievement) => (
+                    <div
+                      key={achievement.id}
+                      className={`p-4 rounded-xl text-center transition-all ${
+                        achievement.earned
+                          ? 'bg-gradient-to-br from-[#FFD43B]/20 to-[#FFA94D]/20 border-2 border-[#FFD43B]/50'
+                          : 'bg-[#F8F9FA] opacity-50'
+                      }`}
+                    >
+                      <div className="text-4xl mb-2">{achievement.icon}</div>
+                      <h5 className="text-sm mb-1">{achievement.title}</h5>
+                      <p className="text-xs text-[#ADB5BD]">{achievement.description}</p>
+                      {achievement.earned && achievement.date && (
+                        <p className="text-xs text-[#FFD43B] mt-2">{achievement.date}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            )}
             
             {/* Recent Activity */}
             <Card className="p-6">

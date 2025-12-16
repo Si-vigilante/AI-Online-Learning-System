@@ -103,9 +103,12 @@ export function StudentDashboard({ onNavigate, currentUser, onSelectCourse }: St
     quizScore: stats.certificates > 0 ? 85 : 0
   };
   const recommendedCourses = useMemo(() => {
-    const enrolledIds = new Set(enrollments.map((e) => e.courseId));
-    return courses.filter((c) => !enrolledIds.has(c.id)).slice(0, 3);
-  }, [courses, enrollments]);
+    const targetTitles = ['数字程序设计基础', '离散数学', '马克思主义基本原理'];
+    const byTitle = new Map(courses.map((c) => [c.title, c]));
+    return targetTitles
+      .map((title) => byTitle.get(title))
+      .filter(Boolean) as Course[];
+  }, [courses]);
 
   const myCourses = useMemo(
     () => courses.filter((course) => enrollments.some((enroll) => enroll.courseId === course.id)),

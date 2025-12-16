@@ -54,10 +54,7 @@ export function Navigation({ currentPage, onNavigate, userRole = 'student', curr
         className="hidden lg:block bg-white border-b border-[#E9ECEF] sticky top-0 z-50"
         style={{ paddingTop: '16px', paddingBottom: '16px' }}
       >
-        <div
-          className="container-custom py-4 px-6"
-          style={{ maxWidth: '1280px', marginLeft: 0, marginRight: 'auto' }}
-        >
+        <div className="container-custom py-4">
           <div className="flex items-center justify-between gap-6">
             {/* Logo */}
             <div
@@ -115,10 +112,10 @@ export function Navigation({ currentPage, onNavigate, userRole = 'student', curr
                   <img
                     src={currentUser.avatar}
                     alt="avatar"
-                    className="w-8 h-8 rounded-full object-cover border border-[#E9ECEF]"
+                    className="w-10 h-10 rounded-full object-cover border border-[#E9ECEF]"
                   />
                 ) : (
-                  <div className="w-8 h-8 bg-gradient-to-br from-[#4C6EF5] to-[#845EF7] rounded-full flex items-center justify-center text-white text-sm">
+                  <div className="w-10 h-10 bg-gradient-to-br from-[#4C6EF5] to-[#845EF7] rounded-full flex items-center justify-center text-white text-sm">
                     {currentUser?.name?.[0] || 'U'}
                   </div>
                 )}
@@ -151,10 +148,7 @@ export function Navigation({ currentPage, onNavigate, userRole = 'student', curr
         className="lg:hidden bg-white border-b border-[#E9ECEF] sticky top-0 z-50"
         style={{ paddingTop: '16px', paddingBottom: '16px' }}
       >
-        <div
-          className="flex items-center justify-between px-4 py-4"
-          style={{ maxWidth: '1280px', marginLeft: 1000, marginRight: 'auto' }}
-        >
+        <div className="container-custom flex items-center justify-between py-4">
           <div
             className="flex items-center cursor-pointer"
             style={{ gap: '16px' }}
