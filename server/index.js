@@ -8,6 +8,8 @@ const path = require('path');
 const { OpenAI } = require('openai');
 const PptxGenJS = require('pptxgenjs');
 const dayjs = require('dayjs');
+const { getMockCourseContent } = require('./mocks/courseContent');
+const { QUESTION_BANK } = require('./mocks/questionBank');
 
 const app = express();
 const server = http.createServer(app);
@@ -23,9 +25,10 @@ app.use(express.json());
 // Lowdb setup
 const dbFile = path.join(__dirname, 'db.json');
 const adapter = new JSONFileSync(dbFile);
-const db = new LowSync(adapter, { qaQuestions: [], forumPosts: [] });
+const db = new LowSync(adapter, { qaQuestions: [], forumPosts: [], examPapers: [] });
 db.read();
-db.data = db.data || { qaQuestions: [], forumPosts: [] };
+db.data = db.data || { qaQuestions: [], forumPosts: [], examPapers: [] };
+db.data.examPapers = db.data.examPapers || [];
 
 // ModelScope / DeepSeek config
 const MODELSCOPE_BASE_URL = 'https://api-inference.modelscope.cn/v1';
@@ -195,6 +198,144 @@ const applyPageRange = (slides, pageRange) => {
   return result;
 };
 
+// ===== Exam/Quiz helpers =====
+const clampPlan = (plan = {}) => {
+  const safe = {};
+  ['single', 'multiple', 'tf', 'short', 'essay'].forEach((key) => {
+    const val = Number(plan[key]);
+    safe[key] = Number.isFinite(val) && val > 0 ? Math.min(20, Math.max(0, Math.round(val))) : 0;
+  });
+  return safe;
+};
+
+const shuffle = (arr = []) => {
+  const list = [...arr];
+  for (let i = list.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [list[i], list[j]] = [list[j], list[i]];
+  }
+  return list;
+};
+
+const pickFromBank = (plan, knowledgeScope = [], difficulty) => {
+  const picked = [];
+  const remaining = { ...plan };
+  const scopeLower = (knowledgeScope || []).map((k) => (k || '').toLowerCase());
+  const matchScope = (q) => {
+    if (!scopeLower.length) return true;
+    return (q.knowledgePoints || []).some((kp) => scopeLower.includes((kp || '').toLowerCase()));
+  };
+  const bankByType = QUESTION_BANK.reduce((acc, q) => {
+    if (!acc[q.type]) acc[q.type] = [];
+    acc[q.type].push(q);
+    return acc;
+  }, {});
+
+  Object.keys(plan).forEach((type) => {
+    const need = plan[type] || 0;
+    if (!need) return;
+    const pool = shuffle((bankByType[type] || []).filter((q) => matchScope(q) && (!difficulty || q.difficulty === difficulty)));
+    while (remaining[type] > 0 && pool.length) {
+      picked.push(pool.pop());
+      remaining[type] -= 1;
+    }
+  });
+  return { picked, remaining };
+};
+
+const defaultScoreByType = {
+  single: 5,
+  multiple: 6,
+  tf: 2,
+  short: 8,
+  essay: 10
+};
+
+const normalizeLLMQuestion = (q = {}, fallbackType = 'single') => {
+  const base = {
+    id: genId(),
+    type: q.type || fallbackType,
+    stem: q.stem || '',
+    knowledgePoints: Array.isArray(q.knowledgePoints) ? q.knowledgePoints : [],
+    difficulty: q.difficulty || '中等',
+    score: Number(q.score) || defaultScoreByType[q.type] || 5,
+    explanation: q.explanation || q.analysis || ''
+  };
+  if (base.type === 'single' || base.type === 'multiple') {
+    const opts = Array.isArray(q.options) ? q.options : [];
+    const normalizedOpts = opts
+      .filter(Boolean)
+      .map((opt, idx) => ({
+        key: opt.key || String.fromCharCode(65 + idx),
+        text: opt.text || opt
+      }))
+      .slice(0, 6);
+    const ans = Array.isArray(q.answer) ? q.answer : q.answer ? [q.answer] : [];
+    return {
+      ...base,
+      type: base.type,
+      options: normalizedOpts,
+      answer: ans.map((a) => (typeof a === 'string' ? a.trim().toUpperCase() : a)).filter(Boolean)
+    };
+  }
+  if (base.type === 'tf') {
+    return { ...base, answer: Boolean(q.answer) };
+  }
+  return {
+    ...base,
+    type: base.type === 'essay' ? 'essay' : 'short',
+    referenceAnswer: q.referenceAnswer || q.answer || '',
+    gradingRubric: Array.isArray(q.gradingRubric) ? q.gradingRubric : [{ item: '要点完整', points: base.score }]
+  };
+};
+
+const validateQuestions = (qs = []) => {
+  const valid = [];
+  qs.forEach((q) => {
+    if (!q || !q.stem) return;
+    const type = q.type;
+    if (!['single', 'multiple', 'tf', 'short', 'essay'].includes(type)) return;
+    const normalized = normalizeLLMQuestion(q, type);
+    valid.push(normalized);
+  });
+  return valid;
+};
+
+const buildExamPrompt = ({ courseContext, knowledgeScope, difficulty, plan }) => {
+  const planEntries = Object.entries(plan).filter(([, v]) => v > 0);
+  const planText = planEntries.map(([k, v]) => `${k}:${v}题`).join('，');
+  const schemaHint = {
+    questions: [
+      {
+        type: 'single | multiple | tf | short | essay',
+        stem: '题干',
+        knowledgePoints: ['知识点1', '知识点2'],
+        difficulty: '简单|中等|困难',
+        score: 5,
+        explanation: '解析',
+        options: [{ key: 'A', text: '选项文本' }],
+        answer: ['A']
+      }
+    ]
+  };
+  const sys = `你是严格的教育测验出题助手。只输出 JSON，不要多余文字或代码块。题目必须可用于自动判分，覆盖给定知识点与课程内容。客观题必须给正确答案与解析；主观题给参考答案与评分要点。`;
+  const user = `
+课程内容片段（可截断）：${courseContext}
+知识点范围：${knowledgeScope.join('，') || '未指定'}
+目标难度：${difficulty}
+缺口题量计划：${planText || '无'}
+要求：
+- 题目紧扣课程内容与知识点，不要超纲。
+- 单/多选选项 4~6 个，禁止“以上都对”类模糊选项。
+- 每题提供解析 explanation。
+- 主观题需 referenceAnswer 与 gradingRubric（小项加和=score）。
+输出 JSON（不要 Markdown 代码块），示例结构：${JSON.stringify(schemaHint)}
+`;
+  return [
+    { role: 'system', content: sys },
+    { role: 'user', content: user }
+  ];
+};
 // Helpers
 const genId = () => Math.random().toString(36).slice(2, 10);
 const getValidPageRange = (pageRange) =>
@@ -218,6 +359,40 @@ const buildErrorPayload = (err) => {
           ? '模型服务异常，请稍后重试'
           : err?.message || '调用模型失败';
   return { statusCode, message, detail: err?.response?.data || err?.message };
+};
+
+const callDeepSeekExam = async ({ messages, retry = 0 }) => {
+  const maxRetry = 2;
+  try {
+    const completion = await callDeepSeek({
+      messages,
+      stream: false,
+      enableThinking: false,
+      responseFormat: { type: 'json_object' }
+    });
+    const content = completion?.choices?.[0]?.message?.content;
+    if (!content) throw new Error('模型无返回');
+    let data = content;
+    if (typeof data === 'string') {
+      data = JSON.parse(data);
+    }
+    if (typeof data !== 'object' || !data.questions) {
+      throw new Error('返回格式不含 questions');
+    }
+    return { data, meta: { model: MODELSCOPE_MODEL, usage: completion?.usage, retries: retry } };
+  } catch (err) {
+    if (retry < maxRetry) {
+      const fixMessages = [
+        ...messages,
+        {
+          role: 'user',
+          content: `上次解析失败：${err?.message || err}. 请严格输出 JSON 对象 {questions:[...]}, 不要代码块，不要额外文字。`
+        }
+      ];
+      return callDeepSeekExam({ messages: fixMessages, retry: retry + 1 });
+    }
+    throw err;
+  }
 };
 
 app.post('/api/ai', async (req, res) => {
@@ -771,6 +946,90 @@ io.on('connection', (socket) => {
     }
     socketRooms.delete(socket.id);
   });
+});
+
+// ===== Exam generation =====
+app.post('/api/exams/generate', async (req, res) => {
+  const body = req.body || {};
+  const courseId = body.courseId || 'deep-learning';
+  const knowledgeScope = Array.isArray(body.knowledgeScope) ? body.knowledgeScope : [];
+  const difficulty = body.difficulty || '中等';
+  const questionPlan = clampPlan(body.questionPlan || {});
+  const durationMinutes = Number(body.durationMinutes) || 20;
+
+  const totalNeed = Object.values(questionPlan).reduce((a, b) => a + b, 0);
+  if (!totalNeed) {
+    return res.status(400).json({ error: { code: 'INVALID_PLAN', message: '题量为空，请至少选择 1 道题' } });
+  }
+
+  try {
+    const courseContext = getMockCourseContent(courseId);
+    const { picked, remaining } = pickFromBank(questionPlan, knowledgeScope, difficulty);
+    const needLLM = Object.values(remaining).some((v) => v > 0);
+    let llmQuestions = [];
+    let retries = 0;
+    let modelMeta = {};
+
+    if (needLLM) {
+      const messages = buildExamPrompt({ courseContext, knowledgeScope, difficulty, plan: remaining });
+      const resp = await callDeepSeekExam({ messages, retry: 0 });
+      retries = resp?.meta?.retries || 0;
+      modelMeta = { model: MODELSCOPE_MODEL, tokens: resp?.meta?.usage?.total_tokens, retries };
+      const rawQs = Array.isArray(resp?.data?.questions) ? resp.data.questions : [];
+      llmQuestions = validateQuestions(rawQs);
+    }
+
+    const allQuestions = [...picked, ...llmQuestions].map((q) => ({
+      ...q,
+      id: q.id || genId(),
+      score: Number(q.score) || defaultScoreByType[q.type] || 5,
+      knowledgePoints: Array.isArray(q.knowledgePoints) ? q.knowledgePoints : []
+    }));
+
+    const totalScore = allQuestions.reduce((sum, q) => sum + (Number(q.score) || 0), 0);
+    const source =
+      picked.length && llmQuestions.length ? 'mixed' : picked.length ? 'bank_only' : 'llm_only';
+    const paper = {
+      id: genId(),
+      title: body.title || `AI测验-${dayjs().format('MMDD HH:mm')}`,
+      courseId,
+      createdBy: body.createdBy || 'teacher',
+      createdAt: new Date().toISOString(),
+      difficulty,
+      knowledgeScope,
+      durationMinutes,
+      totalScore,
+      questions: allQuestions,
+      meta: { ...modelMeta, source }
+    };
+    db.read();
+    db.data.examPapers = db.data.examPapers || [];
+    db.data.examPapers.unshift(paper);
+    db.write();
+    return res.json({ paper });
+  } catch (err) {
+    console.error('generate exam failed', err);
+    return res.status(500).json({ error: { code: 'GEN_FAIL', message: err?.message || '生成失败' } });
+  }
+});
+
+app.get('/api/exams', (req, res) => {
+  db.read();
+  const { courseId } = req.query || {};
+  const list = (db.data.examPapers || []).filter((p) => !courseId || p.courseId === courseId);
+  res.json({ papers: list });
+});
+
+app.post('/api/exams', (req, res) => {
+  const paper = req.body?.paper;
+  if (!paper || !paper.id) {
+    return res.status(400).json({ error: { code: 'INVALID_PAPER', message: '缺少试卷数据' } });
+  }
+  db.read();
+  db.data.examPapers = db.data.examPapers || [];
+  db.data.examPapers.unshift(paper);
+  db.write();
+  res.json({ ok: true });
 });
 
 // PPT -> Video (PDF -> PNG -> VOD)

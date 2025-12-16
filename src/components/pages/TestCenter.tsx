@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Card } from '../design-system/Card';
 import { Button } from '../design-system/Button';
-import { FileText, Sparkles, Clock, Award, Plus, Play, Shield, Eye, Camera, Timer, Shuffle, BookOpenCheck } from 'lucide-react';
+import { FileText, Sparkles, Clock, Award, Plus, Play, Shield, Eye, Camera, Timer, Shuffle, BookOpenCheck, Loader2 } from 'lucide-react';
 import { UserProfile } from '../../services/auth';
+import { generateExamPaper, listExamPapersLocal, saveExamPaperLocal } from '../../services/exams';
+import type { ExamPaper, Question } from '../../types/exam';
 
 interface TestCenterProps {
   onNavigate: (page: string) => void;
@@ -15,43 +17,119 @@ export function TestCenter({ onNavigate, currentUser }: TestCenterProps) {
     difficulty: '中等',
     questionTypes: ['单选', '多选', '判断', '简答'],
     knowledge: ['激活函数', '反向传播'],
-    randomAssemble: true
+    randomAssemble: true,
+    durationMinutes: 20
+  });
+  const [questionPlan, setQuestionPlan] = useState({
+    single: 3,
+    multiple: 2,
+    tf: 2,
+    short: 1,
+    essay: 1
   });
   const [proctorSettings, setProctorSettings] = useState({
     timer: true,
     antiCheat: true,
     camera: false
   });
+  const [knowledgeInput, setKnowledgeInput] = useState('');
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [generatedPaper, setGeneratedPaper] = useState<ExamPaper | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
+  const [courseId] = useState('deep-learning');
+  const [availablePapers, setAvailablePapers] = useState<ExamPaper[]>([]);
 
-  const quizzes = [
-    {
-      id: 1,
-      title: '深度学习基础 - 第一章测验',
-      questions: 15,
-      duration: 20,
-      attempts: 2,
-      bestScore: 85,
-      status: 'completed'
-    },
-    {
-      id: 2,
-      title: '神经网络原理测验',
-      questions: 20,
-      duration: 30,
-      attempts: 0,
-      bestScore: null,
-      status: 'available'
-    },
-    {
-      id: 3,
-      title: '深度学习框架实践',
-      questions: 25,
-      duration: 40,
-      attempts: 0,
-      bestScore: null,
-      status: 'locked'
+  useEffect(() => {
+    setAvailablePapers(listExamPapersLocal(courseId));
+  }, [courseId]);
+
+  const addKnowledge = () => {
+    const next = knowledgeInput.trim();
+    if (!next) return;
+    if (aiConfig.knowledge.includes(next)) {
+      setKnowledgeInput('');
+      return;
     }
-  ];
+    setAiConfig({ ...aiConfig, knowledge: [...aiConfig.knowledge, next] });
+    setKnowledgeInput('');
+  };
+
+  const toggleQuestionType = (typeLabel: string) => {
+    const has = aiConfig.questionTypes.includes(typeLabel);
+    setAiConfig({
+      ...aiConfig,
+      questionTypes: has ? aiConfig.questionTypes.filter((t) => t !== typeLabel) : [...aiConfig.questionTypes, typeLabel]
+    });
+  };
+
+  const handleGenerate = async () => {
+    setError(null);
+    setGenerating(true);
+    try {
+      const typeMap: Record<string, keyof typeof questionPlan> = {
+        单选: 'single',
+        多选: 'multiple',
+        判断: 'tf',
+        简答: 'short',
+        论述: 'essay'
+      };
+      const planPayload: Record<string, number> = {};
+      Object.entries(typeMap).forEach(([label, key]) => {
+        planPayload[key] = aiConfig.questionTypes.includes(label) ? questionPlan[key] || 0 : 0;
+      });
+      const paper = await generateExamPaper({
+        courseId,
+        knowledgeScope: aiConfig.knowledge,
+        difficulty: aiConfig.difficulty,
+        questionPlan: planPayload,
+        durationMinutes: aiConfig.durationMinutes,
+        title: `${aiConfig.knowledge[0] || 'AI'} 测验`,
+        createdBy: currentUser?.name || 'teacher'
+      });
+      setGeneratedPaper(paper);
+      setShowPreview(true);
+      saveExamPaperLocal(paper);
+      setAvailablePapers(listExamPapersLocal(courseId));
+    } catch (err: any) {
+      setError(err?.message || '生成失败');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const groupedQuestions = useMemo(() => {
+    if (!generatedPaper) return {};
+    return generatedPaper.questions.reduce<Record<string, Question[]>>((acc, q) => {
+      if (!acc[q.type]) acc[q.type] = [];
+      acc[q.type].push(q);
+      return acc;
+    }, {});
+  }, [generatedPaper]);
+
+  const quizzes =
+    availablePapers.length > 0
+      ? availablePapers.map((paper) => ({
+          id: paper.id,
+          title: paper.title,
+          questions: paper.questions.length,
+          duration: paper.durationMinutes,
+          attempts: 0,
+          bestScore: null,
+          status: 'available',
+          paper
+        }))
+      : [
+          {
+            id: 1,
+            title: '深度学习基础 - 第一章测验',
+            questions: 15,
+            duration: 20,
+            attempts: 2,
+            bestScore: 85,
+            status: 'completed'
+          }
+        ];
   
   const recentAttempts = [
     {
@@ -98,13 +176,25 @@ export function TestCenter({ onNavigate, currentUser }: TestCenterProps) {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div className="p-3 bg-white/10 rounded-lg">
                         <p className="text-xs opacity-80 mb-1">知识点范围</p>
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex flex-wrap gap-2 mb-2">
                           {aiConfig.knowledge.map((k) => (
                             <span key={k} className="px-3 py-1 bg-white/15 rounded-full text-xs">{k}</span>
                           ))}
-                          <button className="text-xs underline" onClick={() => setAiConfig({ ...aiConfig, knowledge: [...aiConfig.knowledge, '卷积网络'] })}>
-                            + 添加
-                          </button>
+                        </div>
+                        <div className="flex gap-2">
+                          <input
+                            className="flex-1 bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm"
+                            placeholder="输入知识点后回车"
+                            value={knowledgeInput}
+                            onChange={(e) => setKnowledgeInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                addKnowledge();
+                              }
+                            }}
+                          />
+                          <Button variant="secondary" size="sm" onClick={addKnowledge}>添加</Button>
                         </div>
                       </div>
                       <div className="p-3 bg-white/10 rounded-lg">
@@ -127,16 +217,35 @@ export function TestCenter({ onNavigate, currentUser }: TestCenterProps) {
                           <button
                             key={type}
                             className={`px-3 py-1 rounded-full text-xs border ${aiConfig.questionTypes.includes(type) ? 'bg-white text-[#4C6EF5]' : 'border-white/40'}`}
-                            onClick={() => {
-                              const has = aiConfig.questionTypes.includes(type);
-                              setAiConfig({
-                                ...aiConfig,
-                                questionTypes: has ? aiConfig.questionTypes.filter((t) => t !== type) : [...aiConfig.questionTypes, type]
-                              });
-                            }}
+                            onClick={() => toggleQuestionType(type)}
                           >
                             {type}
                           </button>
+                        ))}
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mt-3 text-xs">
+                        {[
+                          { key: 'single', label: '单选' },
+                          { key: 'multiple', label: '多选' },
+                          { key: 'tf', label: '判断' },
+                          { key: 'short', label: '简答' },
+                          { key: 'essay', label: '论述' }
+                        ].map((item) => (
+                          <label key={item.key} className="flex flex-col bg-white/5 rounded-lg px-2 py-2 gap-1">
+                            <span>{item.label}</span>
+                            <input
+                              type="number"
+                              min={0}
+                              className="bg-white/10 border border-white/20 rounded px-2 py-1"
+                              value={(questionPlan as any)[item.key]}
+                              onChange={(e) =>
+                                setQuestionPlan({
+                                  ...questionPlan,
+                                  [item.key]: Math.max(0, Math.min(20, Number(e.target.value) || 0))
+                                })
+                              }
+                            />
+                          </label>
                         ))}
                       </div>
                     </div>
@@ -153,19 +262,76 @@ export function TestCenter({ onNavigate, currentUser }: TestCenterProps) {
                       <span className="text-white/80">自动包含客观题即时评分与主观题语义评分</span>
                     </div>
                     <div className="flex gap-3">
-                      <Button variant="secondary" size="lg">
-                        <Plus className="w-5 h-5" />
-                        生成测验
+                      <Button variant="secondary" size="lg" onClick={handleGenerate} disabled={generating}>
+                        {generating ? <Loader2 className="w-5 h-5 animate-spin" /> : <Plus className="w-5 h-5" />}
+                        {generating ? '生成中...' : '生成测验'}
                       </Button>
-                      <Button variant="ghost" size="lg">
+                      <Button variant="ghost" size="lg" onClick={() => setShowPreview((v) => !v)} disabled={!generatedPaper}>
                         <BookOpenCheck className="w-5 h-5" />
                         预览题单
                       </Button>
                     </div>
+                    {error && <p className="text-sm text-red-100 bg-red-500/30 px-3 py-2 rounded-lg">{error}</p>}
                   </div>
                   <div className="w-32 h-32 bg-white/10 rounded-full backdrop-blur-sm flex items-center justify-center ml-6">
                     <Sparkles className="w-16 h-16" />
                   </div>
+                </div>
+              </Card>
+            )}
+
+            {showPreview && generatedPaper && (
+              <Card className="p-6 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h4 className="mb-1">{generatedPaper.title}</h4>
+                    <p className="text-sm text-[#ADB5BD]">
+                      {generatedPaper.totalScore} 分 · {generatedPaper.questions.length} 题 · 时长 {generatedPaper.durationMinutes} 分钟
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="secondary" onClick={() => saveExamPaperLocal(generatedPaper)}>
+                      保存试卷
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={handleGenerate} disabled={generating}>
+                      重新生成
+                    </Button>
+                  </div>
+                </div>
+                <div className="space-y-4">
+                  {Object.entries(groupedQuestions).map(([type, list]) => (
+                    <div key={type}>
+                      <h5 className="mb-2 capitalize">{type.toUpperCase()}</h5>
+                      <div className="space-y-3">
+                        {list.map((q, idx) => (
+                          <div key={q.id} className="p-3 bg-[#F8F9FA] rounded-lg border border-[#E9ECEF]">
+                            <div className="flex items-center justify-between mb-2 text-sm">
+                              <span className="font-medium">{idx + 1}. {q.stem}</span>
+                              <span className="text-[#ADB5BD]">{q.score} 分</span>
+                            </div>
+                            {('options' in q) && (
+                              <ul className="text-sm text-[#495057] space-y-1">
+                                {q.options.map((opt) => (
+                                  <li key={opt.key}>{opt.key}. {opt.text}</li>
+                                ))}
+                              </ul>
+                            )}
+                            {'answer' in q && Array.isArray((q as any).answer) && (
+                              <p className="text-sm text-[#37B24D] mt-2">答案：{(q as any).answer.join('，')}</p>
+                            )}
+                            {q.type === 'tf' && 'answer' in q && typeof (q as any).answer === 'boolean' && (
+                              <p className="text-sm text-[#37B24D] mt-2">答案：{(q as any).answer ? '正确' : '错误'}</p>
+                            )}
+                            {'referenceAnswer' in q && (
+                              <p className="text-sm text-[#37B24D] mt-2">参考答案：{(q as any).referenceAnswer}</p>
+                            )}
+                            <p className="text-xs text-[#ADB5BD] mt-2">知识点：{q.knowledgePoints.join('，') || '未标注'}</p>
+                            {q.explanation && <p className="text-xs text-[#ADB5BD] mt-1">解析：{q.explanation}</p>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </Card>
             )}
