@@ -18,6 +18,7 @@ export function Navigation({ currentPage, onNavigate, userRole = 'student', curr
     { id: 'course-list', label: '课程', icon: <BookOpen className="w-5 h-5" /> },
     { id: 'ai-chat', label: 'AI助教', icon: <MessageCircle className="w-5 h-5" /> },
     { id: 'test-center', label: '测验', icon: <FileText className="w-5 h-5" /> },
+    { id: 'report-center', label: 'AI报告', icon: <Shield className="w-5 h-5" /> },
     { id: 'learning-analytics', label: '学习画像', icon: <BarChart3 className="w-5 h-5" /> },
     { id: 'study-hub', label: '共享学海', icon: <Users className="w-5 h-5" /> },
     { id: 'rest-room', label: '冥想自习室', icon: <MoonStar className="w-5 h-5" /> }
@@ -29,6 +30,7 @@ export function Navigation({ currentPage, onNavigate, userRole = 'student', curr
     { id: 'ppt-to-video', label: '生成视频', icon: <Sparkles className="w-5 h-5" /> },
     { id: 'course-list', label: '课程管理', icon: <BookOpen className="w-5 h-5" /> },
     { id: 'test-center', label: 'AI出题', icon: <FileText className="w-5 h-5" /> },
+    { id: 'report-center', label: 'AI报告', icon: <Shield className="w-5 h-5" /> },
     { id: 'study-hub', label: '共享学海', icon: <Users className="w-5 h-5" /> },
     { id: 'rest-room', label: '冥想自习室', icon: <MoonStar className="w-5 h-5" /> }
   ];

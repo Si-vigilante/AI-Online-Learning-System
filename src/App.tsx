@@ -19,6 +19,7 @@ import { ExamAttempt } from './components/pages/ExamAttempt';
 import { ExamResult } from './components/pages/ExamResult';
 import { ReportUpload } from './components/pages/ReportUpload';
 import { ReportReview } from './components/pages/ReportReview';
+import { ReportCenter } from './components/pages/ReportCenter';
 import { LearningAnalytics } from './components/pages/LearningAnalytics';
 import { Profile } from './components/pages/Profile';
 import { Settings } from './components/pages/Settings';
@@ -132,6 +133,8 @@ export default function App() {
         return <AIChat {...pageProps} />;
       case 'test-center':
         return <TestCenter {...pageProps} currentUser={currentUser} />;
+      case 'report-center':
+        return <ReportCenter {...pageProps} currentUser={currentUser} />;
       case 'exam-attempt':
         return <ExamAttempt {...pageProps} />;
       case 'exam-result':

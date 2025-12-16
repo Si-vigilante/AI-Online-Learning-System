@@ -27,11 +27,33 @@ app.use(express.json());
 // Lowdb setup
 const dbFile = path.join(__dirname, 'db.json');
 const adapter = new JSONFileSync(dbFile);
-const db = new LowSync(adapter, { qaQuestions: [], forumPosts: [], examPapers: [], examGrades: [] });
+const db = new LowSync(adapter, { qaQuestions: [], forumPosts: [], examPapers: [], examGrades: [], reportAssignments: [], reportSubmissions: [], reportFeedback: [] });
 db.read();
-db.data = db.data || { qaQuestions: [], forumPosts: [], examPapers: [], examGrades: [] };
+db.data = db.data || { qaQuestions: [], forumPosts: [], examPapers: [], examGrades: [], reportAssignments: [], reportSubmissions: [], reportFeedback: [] };
 db.data.examPapers = db.data.examPapers || [];
 db.data.examGrades = db.data.examGrades || [];
+db.data.reportAssignments = db.data.reportAssignments || [];
+db.data.reportSubmissions = db.data.reportSubmissions || [];
+db.data.reportFeedback = db.data.reportFeedback || [];
+if (db.data.reportAssignments.length === 0) {
+  db.data.reportAssignments.push({
+    id: 'report-demo-1',
+    courseId: 'deep-learning',
+    title: '深度学习课程报告',
+    description: '围绕反向传播与梯度问题写一篇综述，包含案例与改进方法。',
+    knowledgePoints: ['反向传播', '梯度消失', '梯度爆炸', '优化'],
+    dueAt: null,
+    rubric: { relevance: 0.25, structure: 0.25, coverage: 0.25, language: 0.25, originality: 0.1 },
+    exemplar: {
+      title: '示例报告',
+      rawText:
+        '本报告综述反向传播原理、梯度消失/爆炸成因及缓解方法，结合卷积网络与循环网络的实践案例，提出改进建议与实验对比。'
+    },
+    createdBy: 'teacher',
+    createdAt: new Date().toISOString()
+  });
+  db.write();
+}
 
 // ModelScope / DeepSeek config
 const MODELSCOPE_BASE_URL = 'https://api-inference.modelscope.cn/v1';
@@ -199,6 +221,18 @@ const applyPageRange = (slides, pageRange) => {
     }
   }
   return result;
+};
+
+const textWordCount = (txt = '') => {
+  if (!txt) return 0;
+  return txt.trim().split(/\s+/).filter(Boolean).length;
+};
+
+const safeString = (v) => (typeof v === 'string' ? v : '');
+
+const limitText = (txt, maxLen = 20000) => {
+  const str = safeString(txt);
+  return str.length > maxLen ? str.slice(0, maxLen) : str;
 };
 
 // ===== Exam/Quiz helpers =====
@@ -427,6 +461,80 @@ const buildSubjectiveGradingPrompt = ({ questionId, question, studentAnswerText 
     { role: 'user', content: `请按以下 JSON schema 输出，不要代码块：${JSON.stringify(user)}` }
   ];
 };
+
+const buildReportEvaluationPrompt = ({ assignment, rawText, needComparison }) => {
+  const sys =
+    '你是严格的课程报告评估助手。只能输出一个合法 JSON 对象，不要 Markdown/代码块/解释/注释。若无法生成完整 JSON，输出 {"error":"generation_failed"}.';
+  const user = {
+    assignment: {
+      title: assignment.title,
+      description: assignment.description,
+      knowledgePoints: assignment.knowledgePoints || [],
+      rubric: assignment.rubric
+    },
+    studentReport: limitText(rawText, 20000),
+    exemplar: assignment.exemplar ? limitText(assignment.exemplar.rawText || '', 12000) : '',
+    needComparison
+  };
+  const schemaHint = {
+    id: 'fb1',
+    assignmentId: assignment.id,
+    submissionId: 'subId',
+    gradedAt: new Date().toISOString(),
+    model: MODELSCOPE_MODEL,
+    totalScore: 90,
+    maxScore: 100,
+    breakdown: {
+      relevance: { score: 20, maxScore: 25, reasons: ['切题性高'] },
+      structure: { score: 20, maxScore: 25, reasons: ['结构清晰'] },
+      coverage: {
+        score: 25,
+        maxScore: 25,
+        reasons: ['知识点覆盖充分'],
+        missingKnowledgePoints: [],
+        hitKnowledgePoints: ['反向传播']
+      },
+      language: {
+        score: 20,
+        maxScore: 25,
+        reasons: ['表达流畅'],
+        issues: [{ type: '用词', example: '模糊词', suggestion: '替换为准确术语' }]
+      }
+    },
+    summary: '总体评价...',
+    strengths: ['优点1', '优点2'],
+    improvements: ['改进1', '改进2'],
+    suggestedOutline: ['引言', '主体', '结论'],
+    paragraphLevelAdvice: [
+      { paragraphIndex: 1, issue: '缺少案例', suggestion: '补充具体实验案例' }
+    ],
+    comparison: needComparison
+      ? {
+          overallGapSummary: '与范例相比仍有差距...',
+          missingSections: ['相关工作'],
+          structureDiff: {
+            studentOutline: ['引言', '方法'],
+            exemplarOutline: ['引言', '背景', '方法', '实验'],
+            suggestions: ['补充背景与实验章节']
+          },
+          keyPointDiff: {
+            missing: ['梯度爆炸'],
+            covered: ['反向传播'],
+            exemplarHighlights: ['详细案例分析']
+          },
+          styleDiff: ['语言可更正式']
+        }
+      : undefined
+  };
+  return [
+    { role: 'system', content: sys },
+    {
+      role: 'user',
+      content: `根据 assignment 与 studentReport 进行评分，严格输出 JSON 对象：${JSON.stringify(schemaHint)}`
+    },
+    { role: 'user', content: JSON.stringify(user) }
+  ];
+};
 // Helpers
 const genId = () => Math.random().toString(36).slice(2, 10);
 const getValidPageRange = (pageRange) =>
@@ -513,6 +621,39 @@ const callDeepSeekSubjective = async ({ messages, retry = 0 }) => {
         }
       ];
       return callDeepSeekSubjective({ messages: fix, retry: retry + 1 });
+    }
+    throw err;
+  }
+};
+
+const callDeepSeekReport = async ({ messages, retry = 0 }) => {
+  const maxRetry = 2;
+  try {
+    const completion = await callDeepSeek({
+      messages,
+      stream: false,
+      enableThinking: false,
+      responseFormat: { type: 'json_object' }
+    });
+    const content = completion?.choices?.[0]?.message?.content;
+    const raw = typeof content === 'string' ? content : JSON.stringify(content || '');
+    console.log('[Report LLM raw length]', raw?.length || 0);
+    console.log('[Report LLM head]', raw?.slice(0, 200) || '');
+    console.log('[Report LLM tail]', raw?.slice(-200) || '');
+    if (!raw) throw new Error('模型无返回');
+    const data = JSON.parse(raw);
+    return { data, usage: completion?.usage, retries: retry };
+  } catch (err) {
+    if (retry < maxRetry) {
+      const fix = [
+        ...messages,
+        {
+          role: 'user',
+          content:
+            '你输出的 JSON 无法解析或不符合 schema，请重新输出单个 JSON 对象，不要 Markdown/解释。若无法生成，输出 {"error":"generation_failed"}。'
+        }
+      ];
+      return callDeepSeekReport({ messages: fix, retry: retry + 1 });
     }
     throw err;
   }
@@ -1226,6 +1367,125 @@ app.post('/api/grading/save', (req, res) => {
   res.json({ ok: true });
 });
 
+// ===== Report assignments/submissions/feedback =====
+app.post('/api/reportAssignments', (req, res) => {
+  const body = req.body || {};
+  const id = body.id || genId();
+  const assignment = {
+    id,
+    courseId: body.courseId || 'default-course',
+    title: body.title || '未命名作业',
+    description: body.description || '',
+    knowledgePoints: Array.isArray(body.knowledgePoints) ? body.knowledgePoints : [],
+    dueAt: body.dueAt || null,
+    rubric: body.rubric || { relevance: 0.25, structure: 0.25, coverage: 0.25, language: 0.25 },
+    exemplar: body.exemplar || null,
+    createdBy: body.createdBy || 'teacher',
+    createdAt: body.createdAt || new Date().toISOString()
+  };
+  db.read();
+  db.data.reportAssignments = [assignment, ...db.data.reportAssignments.filter((a) => a.id !== id)].slice(0, 50);
+  db.write();
+  return res.json({ assignment });
+});
+
+app.get('/api/reportAssignments', (req, res) => {
+  db.read();
+  const { courseId } = req.query || {};
+  const list = (db.data.reportAssignments || []).filter((a) => !courseId || a.courseId === courseId);
+  res.json({ assignments: list });
+});
+
+app.post('/api/reportSubmissions', (req, res) => {
+  const body = req.body || {};
+  if (!body.assignmentId || !body.rawText) {
+    return res.status(400).json({ error: { code: 'BAD_REQUEST', message: '缺少 assignmentId 或 rawText' } });
+  }
+  const submission = {
+    id: body.id || genId(),
+    assignmentId: body.assignmentId,
+    studentId: body.studentId || 'student',
+    studentName: body.studentName || '学生',
+    submittedAt: new Date().toISOString(),
+    format: body.format || 'paste',
+    fileMeta: body.fileMeta,
+    rawText: body.rawText,
+    wordCount: textWordCount(body.rawText)
+  };
+  db.read();
+  db.data.reportSubmissions = [submission, ...db.data.reportSubmissions.filter((s) => s.id !== submission.id)].slice(
+    0,
+    100
+  );
+  db.write();
+  res.json({ submission });
+});
+
+app.get('/api/reports/feedback', (req, res) => {
+  const { submissionId } = req.query || {};
+  if (!submissionId) return res.status(400).json({ error: { message: '缺少 submissionId' } });
+  db.read();
+  const feedback = (db.data.reportFeedback || []).find((f) => f.submissionId === submissionId);
+  res.json({ feedback: feedback || null });
+});
+
+app.post('/api/reports/evaluate', async (req, res) => {
+  try {
+    const { assignmentId, submissionId, rawText } = req.body || {};
+    if (!assignmentId || !submissionId || !rawText) {
+      return res.status(400).json({ error: { code: 'BAD_REQUEST', message: '缺少必要参数' } });
+    }
+    db.read();
+    const assignment = (db.data.reportAssignments || []).find((a) => a.id === assignmentId);
+    if (!assignment) return res.status(404).json({ error: { code: 'NOT_FOUND', message: '作业不存在' } });
+    const needComparison = Boolean(assignment.exemplar?.rawText);
+    const messages = buildReportEvaluationPrompt({ assignment, rawText, needComparison });
+    const resp = await callDeepSeekReport({ messages, retry: 0 });
+    const fb = resp.data || {};
+
+    const maxScore = 100;
+    const breakdown = fb.breakdown || {
+      relevance: { score: 0, maxScore: 25, reasons: [] },
+      structure: { score: 0, maxScore: 25, reasons: [] },
+      coverage: { score: 0, maxScore: 25, reasons: [], missingKnowledgePoints: [], hitKnowledgePoints: [] },
+      language: { score: 0, maxScore: 25, reasons: [], issues: [] }
+    };
+    const totalScore =
+      (Number(breakdown.relevance.score) || 0) +
+      (Number(breakdown.structure.score) || 0) +
+      (Number(breakdown.coverage.score) || 0) +
+      (Number(breakdown.language.score) || 0);
+
+    const feedback = {
+      id: fb.id || genId(),
+      assignmentId,
+      submissionId,
+      gradedAt: new Date().toISOString(),
+      model: MODELSCOPE_MODEL,
+      totalScore,
+      maxScore,
+      breakdown,
+      summary: fb.summary || '',
+      strengths: fb.strengths || [],
+      improvements: fb.improvements || [],
+      suggestedOutline: fb.suggestedOutline || [],
+      paragraphLevelAdvice: fb.paragraphLevelAdvice || [],
+      comparison: fb.comparison,
+      meta: { retries: resp.retries || 0, confidence: 'medium' }
+    };
+
+    db.data.reportFeedback = [feedback, ...db.data.reportFeedback.filter((f) => f.submissionId !== submissionId)].slice(
+      0,
+      100
+    );
+    db.write();
+    return res.json({ feedback });
+  } catch (err) {
+    console.error('report evaluate failed', err);
+    return res.status(500).json({ error: { code: 'EVAL_FAIL', message: err?.message || '评估失败' } });
+  }
+});
+
 // ===== Submission parse (minimal) =====
 const uploadParser = multer({ storage: multer.memoryStorage() });
 app.post('/api/submissions/parse', uploadParser.single('file'), async (req, res) => {
@@ -1269,6 +1529,41 @@ app.post('/api/submissions/parse', uploadParser.single('file'), async (req, res)
   } catch (err) {
     console.error('parse submission failed', err);
     return res.status(500).json({ error: '解析失败' });
+  }
+});
+
+// ===== Report parse =====
+app.post('/api/reports/parse', uploadParser.single('file'), async (req, res) => {
+  try {
+    const textBody = req.body?.text;
+    if (textBody && typeof textBody === 'string' && textBody.trim()) {
+      const rawText = textBody.trim();
+      return res.json({
+        rawText,
+        format: 'paste',
+        wordCount: textWordCount(rawText)
+      });
+    }
+    const file = req.file;
+    if (!file) {
+      return res.status(400).json({ error: { code: 'BAD_REQUEST', message: '缺少文件或文本' } });
+    }
+    const ext = (file.originalname.split('.').pop() || '').toLowerCase();
+    if (['txt', 'md'].includes(ext)) {
+      const rawText = file.buffer.toString('utf8');
+      return res.json({
+        rawText,
+        format: ext,
+        fileMeta: { name: file.originalname, size: file.size, mime: file.mimetype },
+        wordCount: textWordCount(rawText)
+      });
+    }
+    return res.status(400).json({
+      error: { code: 'UNSUPPORTED', message: '暂不支持此格式，请改为上传 txt/md 或粘贴正文' }
+    });
+  } catch (err) {
+    console.error('report parse failed', err);
+    return res.status(500).json({ error: { code: 'PARSE_FAIL', message: '解析失败' } });
   }
 });
 

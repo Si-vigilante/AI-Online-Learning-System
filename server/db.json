@@ -543,5 +543,35 @@
       }
     }
   ],
-  "examGrades": []
+  "examGrades": [],
+  "reportAssignments": [
+    {
+      "id": "report-demo-1",
+      "courseId": "deep-learning",
+      "title": "深度学习课程报告",
+      "description": "围绕反向传播与梯度问题写一篇综述，包含案例与改进方法。",
+      "knowledgePoints": [
+        "反向传播",
+        "梯度消失",
+        "梯度爆炸",
+        "优化"
+      ],
+      "dueAt": null,
+      "rubric": {
+        "relevance": 0.25,
+        "structure": 0.25,
+        "coverage": 0.25,
+        "language": 0.25,
+        "originality": 0.1
+      },
+      "exemplar": {
+        "title": "示例报告",
+        "rawText": "本报告综述反向传播原理、梯度消失/爆炸成因及缓解方法，结合卷积网络与循环网络的实践案例，提出改进建议与实验对比。"
+      },
+      "createdBy": "teacher",
+      "createdAt": "2025-12-16T05:36:36.164Z"
+    }
+  ],
+  "reportSubmissions": [],
+  "reportFeedback": []
 }
