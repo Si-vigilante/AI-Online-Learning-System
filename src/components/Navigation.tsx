@@ -56,12 +56,12 @@ export function Navigation({ currentPage, onNavigate, userRole = 'student', curr
         className="hidden lg:block bg-white border-b border-[#E9ECEF] sticky top-0 z-50"
         style={{ paddingTop: '16px', paddingBottom: '16px' }}
       >
-        <div className="container-custom py-4">
-          <div className="flex items-center justify-between gap-6">
+        <div className="container-custom py-3">
+          <div className="flex items-center gap-4">
             {/* Logo */}
             <div
               className="flex items-center cursor-pointer"
-              style={{ gap: '16px' }}
+              style={{ gap: '12px' }}
               onClick={() => onNavigate(userRole === 'teacher' ? 'teacher-dashboard' : userRole === 'assistant' ? 'ai-chat' : 'student-dashboard')}
             >
               <div
@@ -87,7 +87,10 @@ export function Navigation({ currentPage, onNavigate, userRole = 'student', curr
             </div>
             
             {/* Nav Items */}
-            <div className="flex items-center gap-6 flex-nowrap">
+            <div
+              className="flex items-center gap-4 flex-nowrap overflow-x-auto"
+              style={{ minWidth: 0, paddingLeft: '12px' }}
+            >
               {navItems.map((item) => (
                 <button
                   key={item.id}
@@ -105,7 +108,7 @@ export function Navigation({ currentPage, onNavigate, userRole = 'student', curr
             </div>
             
             {/* User Menu */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 ml-auto flex-shrink-0">
               <button 
                 className="flex items-center gap-2 px-4 h-10 rounded-lg hover:bg-[#F8F9FA] transition-colors leading-[1.1] text-base"
                 onClick={() => onNavigate('profile')}
@@ -165,13 +168,13 @@ export function Navigation({ currentPage, onNavigate, userRole = 'student', curr
             <div className="flex flex-col justify-center leading-none">
               <p
                 className="font-bold whitespace-nowrap"
-                style={{ fontSize: '28px', lineHeight: 1.15, color: '#212529', margin: 0 }}
+                style={{ fontSize: '24px', lineHeight: 1.15, color: '#212529', margin: 0 }}
               >
                 知域 · AI 智能教学系统
               </p>
               <p
                 className="font-medium whitespace-nowrap"
-                style={{ fontSize: '16px', lineHeight: 1.15, color: 'rgba(0,0,0,0.55)', margin: 0, marginTop: '6px' }}
+                style={{ fontSize: '14px', lineHeight: 1.15, color: 'rgba(0,0,0,0.55)', margin: 0, marginTop: '4px' }}
               >
                 智慧学习平台
               </p>
