@@ -139,12 +139,12 @@ export function ReportCenter({ onNavigate, currentUser }: ReportCenterProps) {
 
   return (
     <div className="min-h-screen bg-[#F8F9FA]">
-      <div className="bg-gradient-to-r from-[#4C6EF5] to-[#845EF7] text-white py-10 px-8">
-        <div className="container-custom">
-          <h1 className="text-white mb-2 flex items-center gap-2">
-            <Shield className="w-6 h-6" /> AI 报告模块
+      <div className="bg-gradient-to-r from-[#4C6EF5] to-[#845EF7] text-white" style={{ paddingTop: '56px', paddingBottom: '56px' }}>
+        <div className="container-custom px-4">
+          <h1 className="text-white mb-3 flex items-center gap-2 text-3xl md:text-4xl font-semibold">
+            <Shield className="w-7 h-7" /> AI 报告模块
           </h1>
-          <p className="text-lg opacity-90">上传报告 · AI 评估 · 范例对比</p>
+          <p className="text-lg md:text-xl opacity-90">上传报告 · AI 评估 · 范例对比</p>
         </div>
       </div>
 
