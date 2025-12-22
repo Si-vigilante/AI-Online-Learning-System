@@ -2584,6 +2584,7 @@ small {
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
   border-radius: 16px;
   pointer-events: auto;
+  color: #fff;
 }
 
 .rest-card {
