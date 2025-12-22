@@ -60,6 +60,7 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
   const [members, setMembers] = useState<string[]>([]);
   const [timerSeconds, setTimerSeconds] = useState(0);
   const [timerRunning, setTimerRunning] = useState(false);
+  const [timerTotal, setTimerTotal] = useState(0);
   const [switcherCollapsed, setSwitcherCollapsed] = useState(false);
   const [musicCollapsed, setMusicCollapsed] = useState(false);
 
@@ -177,6 +178,7 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
     audioARef.current.loop = true;
     audioARef.current.preload = 'auto';
     audioARef.current.volume = vol;
+    applyVolume(activeAudio, vol);
     logDebug('volume-change', { volume: vol, src: activeAudio.src, paused: activeAudio.paused });
   }, [volume, activeAudio]);
 
@@ -199,7 +201,7 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
     setIsPlaying(false);
     activeAudio.pause();
     activeAudio.currentTime = 0;
-
+    setPlayHint('切换中...');
     setSceneIndex(nextIndex);
     setShowScenePicker(false);
     setBgFading(true);
@@ -238,7 +240,6 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
     markActive();
     if (isPlaying) {
       activeAudio.pause();
-      standbyAudio.pause();
       logDebug('pause', { src: activeAudio.src, volume: activeAudio.volume });
       setIsPlaying(false);
       return;
@@ -271,7 +272,9 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
   };
 
   const startTimer = (minutes: number) => {
-    setTimerSeconds(minutes * 60);
+    const total = minutes * 60;
+    setTimerSeconds(total);
+    setTimerTotal(total);
     setTimerRunning(true);
     markActive();
   };
@@ -319,17 +322,17 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
       originX: positions[key].x,
       originY: positions[key].y
     };
-    const move = (e: MouseEvent | TouchEvent) => {
-      const point = 'touches' in e ? e.touches[0] : e;
-      const dx = point.clientX - dragState.current.startX;
-      const dy = point.clientY - dragState.current.startY;
-      const k = dragState.current.key;
-      if (!k) return;
-      setPositions((prev) => ({
-        ...prev,
-        [k]: { x: dragState.current.originX + dx, y: dragState.current.originY + dy }
-      }));
-    };
+   const move = (e: MouseEvent | TouchEvent) => {
+     const point = 'touches' in e ? e.touches[0] : e;
+     const dx = point.clientX - dragState.current.startX;
+     const dy = point.clientY - dragState.current.startY;
+     const k = dragState.current.key;
+     if (!k) return;
+     setPositions((prev) => ({
+       ...prev,
+       [k]: { x: dragState.current.originX + dx, y: dragState.current.originY + dy }
+     }));
+   };
     const up = () => {
       dragState.current.key = null;
       document.removeEventListener('mousemove', move);
@@ -337,9 +340,9 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
       document.removeEventListener('touchmove', move);
       document.removeEventListener('touchend', up);
     };
-    document.addEventListener('mousemove', move);
+    document.addEventListener('mousemove', move, { passive: true });
     document.addEventListener('mouseup', up);
-    document.addEventListener('touchmove', move);
+    document.addEventListener('touchmove', move, { passive: true });
     document.addEventListener('touchend', up);
   };
 
@@ -356,7 +359,7 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
           style={{
             bottom: `calc(40px + ${positions.switcher.y}px)`,
             left: '50%',
-            transform: `translate(calc(-50% + ${positions.switcher.x}px), 0)`
+            transform: `translate(-50%, 0) translate(${positions.switcher.x}px, ${positions.switcher.y}px)`
           }}
         >
           <div className="rest-glass px-4 py-3 rounded-full flex items-center gap-3 shadow-lg bg-black/70 text-white">
@@ -387,12 +390,12 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
 
         {!switcherCollapsed && (
           <div
-            className="fixed pointer-events-auto"
-            style={{
-              bottom: `calc(40px + ${positions.music.y}px)`,
-              left: `calc(16px + ${positions.music.x}px)`
-            }}
-          >
+          className="fixed pointer-events-auto"
+          style={{
+            bottom: `calc(40px + ${positions.music.y}px)`,
+            left: `calc(16px + ${positions.music.x}px)`
+          }}
+        >
             <div className="rest-glass w-[320px] p-4 shadow-2xl bg-black/70 text-white">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
@@ -529,16 +532,24 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
               </div>
 
               <div className="mb-3">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs text-white/80">专注计时器</span>
-                  <span className="text-xs text-white/70">{formatTimer(timerSeconds)}</span>
-                </div>
-                <div className="flex gap-2">
-                  <Button size="sm" variant="secondary" onClick={() => startTimer(25)}>
-                    25 min
-                  </Button>
-                  <Button size="sm" variant="secondary" onClick={() => startTimer(50)}>
-                    50 min
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm text-white/90">专注计时器</span>
+                    <span className="text-lg font-semibold text-white">{formatTimer(timerSeconds)}</span>
+                  </div>
+                  <div className="w-full bg-white/15 h-2 rounded-full overflow-hidden mb-2">
+                    <div
+                      className="h-full bg-gradient-to-r from-[#4C6EF5] to-[#845EF7] transition-all"
+                      style={{
+                        width: `${timerTotal ? Math.min(100, (timerSeconds / timerTotal) * 100) : 0}%`
+                      }}
+                    />
+                  </div>
+                  <div className="flex gap-2 flex-wrap">
+                    <Button size="sm" variant="secondary" onClick={() => startTimer(25)}>
+                      25 min
+                    </Button>
+                    <Button size="sm" variant="secondary" onClick={() => startTimer(50)}>
+                      50 min
                   </Button>
                   <Button
                     size="sm"
