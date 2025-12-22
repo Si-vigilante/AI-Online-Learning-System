@@ -526,7 +526,7 @@ const buildSubjectiveGradingPrompt = ({ questionId, question, studentAnswerText 
 
 const buildReportEvaluationPrompt = ({ assignment, rawText, needComparison }) => {
   const sys =
-    '你是严格的课程报告评估助手。只能输出一个合法 JSON 对象，不要 Markdown/代码块/解释/注释。若无法生成完整 JSON，输出 {"error":"generation_failed"}.';
+    '你是严格的课程报告评估助手。只能输出一个合法 JSON 对象，不要 Markdown/代码块/解释/注释。若无法生成完整 JSON，输出 {"error":"generation_failed"}。需要从主题相关性、结构完整性、知识点覆盖、语言规范四个维度评分，并给出具体可执行的优化建议。';
   const user = {
     assignment: {
       title: assignment.title,
@@ -561,7 +561,11 @@ const buildReportEvaluationPrompt = ({ assignment, rawText, needComparison }) =>
         maxScore: 25,
         reasons: ['表达流畅'],
         issues: [{ type: '用词', example: '模糊词', suggestion: '替换为准确术语' }]
-      }
+      },
+      optimization: [
+        { type: '案例补充', suggestion: '建议补充 XX 知识点的案例，强化论证' },
+        { type: '段落结构', suggestion: '第3段逻辑需调整，先给概念再给数据，再给结论' }
+      ]
     },
     summary: '总体评价...',
     strengths: ['优点1', '优点2'],
@@ -596,6 +600,57 @@ const buildReportEvaluationPrompt = ({ assignment, rawText, needComparison }) =>
     },
     { role: 'user', content: JSON.stringify(user) }
   ];
+};
+
+const buildDefaultReportFeedback = ({ assignment, submissionId, reason = 'generation_failed' }) => {
+  const maxScore = 100;
+  const breakdown = {
+    relevance: { score: 0, maxScore: 25, reasons: [] },
+    structure: { score: 0, maxScore: 25, reasons: [] },
+    coverage: {
+      score: 0,
+      maxScore: 25,
+      reasons: [],
+      missingKnowledgePoints: assignment?.knowledgePoints || [],
+      hitKnowledgePoints: []
+    },
+    language: {
+      score: 0,
+      maxScore: 25,
+      reasons: [],
+      issues: []
+    },
+    optimization: [{ type: '系统提示', suggestion: `AI 未能生成有效反馈（${reason}），请稍后重试。` }]
+  };
+  return {
+    id: genId(),
+    assignmentId: assignment?.id || 'unknown',
+    submissionId,
+    gradedAt: new Date().toISOString(),
+    model: MODELSCOPE_MODEL,
+    totalScore: 0,
+    maxScore,
+    breakdown,
+    summary: `AI 未生成有效反馈：${reason}`,
+    strengths: [],
+    improvements: ['请检查网络/凭证后重试，或联系教师进行人工批改。'],
+    suggestedOutline: [],
+    paragraphLevelAdvice: [],
+    comparison: assignment?.exemplar
+      ? {
+          overallGapSummary: '未生成对比，因 AI 反馈失败。',
+          missingSections: [],
+          structureDiff: { studentOutline: [], exemplarOutline: assignment.exemplar.outline || [], suggestions: [] },
+          keyPointDiff: {
+            missing: assignment.knowledgePoints || [],
+            covered: [],
+            exemplarHighlights: []
+          },
+          styleDiff: []
+        }
+      : undefined,
+    meta: { retries: 0, confidence: 'low' }
+  };
 };
 // Helpers
 const genId = () => Math.random().toString(36).slice(2, 10);
@@ -698,7 +753,14 @@ const callDeepSeekReport = async ({ messages, retry = 0 }) => {
       responseFormat: { type: 'json_object' }
     });
     const content = completion?.choices?.[0]?.message?.content;
-    const raw = typeof content === 'string' ? content : JSON.stringify(content || '');
+    let raw = typeof content === 'string' ? content : JSON.stringify(content || '');
+    if (typeof raw === 'string') {
+      // strip Markdown fences if present
+      raw = raw.trim();
+      if (raw.startsWith('```')) {
+        raw = raw.replace(/^```[a-zA-Z]*\n?/, '').replace(/```$/, '').trim();
+      }
+    }
     console.log('[Report LLM raw length]', raw?.length || 0);
     console.log('[Report LLM head]', raw?.slice(0, 200) || '');
     console.log('[Report LLM tail]', raw?.slice(-200) || '');
@@ -706,6 +768,7 @@ const callDeepSeekReport = async ({ messages, retry = 0 }) => {
     const data = JSON.parse(raw);
     return { data, usage: completion?.usage, retries: retry };
   } catch (err) {
+    console.error('[callDeepSeekReport] failed', err?.stack || err?.message || err);
     if (retry < maxRetry) {
       const fix = [
         ...messages,
@@ -1525,14 +1588,18 @@ app.post('/api/reports/evaluate', async (req, res) => {
     const needComparison = Boolean(assignment.exemplar?.rawText);
     const messages = buildReportEvaluationPrompt({ assignment, rawText, needComparison });
     const resp = await callDeepSeekReport({ messages, retry: 0 });
-    const fb = resp.data || {};
+    let fb = resp.data || {};
+    if (fb.error) {
+      fb = buildDefaultReportFeedback({ assignment, submissionId, reason: fb.error });
+    }
 
     const maxScore = 100;
     const breakdown = fb.breakdown || {
       relevance: { score: 0, maxScore: 25, reasons: [] },
       structure: { score: 0, maxScore: 25, reasons: [] },
       coverage: { score: 0, maxScore: 25, reasons: [], missingKnowledgePoints: [], hitKnowledgePoints: [] },
-      language: { score: 0, maxScore: 25, reasons: [], issues: [] }
+      language: { score: 0, maxScore: 25, reasons: [], issues: [] },
+      optimization: [{ type: '系统提示', suggestion: 'AI 未生成有效反馈，请稍后重试。' }]
     };
     const totalScore =
       (Number(breakdown.relevance.score) || 0) +
@@ -1551,11 +1618,11 @@ app.post('/api/reports/evaluate', async (req, res) => {
       breakdown,
       summary: fb.summary || '',
       strengths: fb.strengths || [],
-      improvements: fb.improvements || [],
+      improvements: fb.improvements || (breakdown.optimization ? breakdown.optimization.map((o) => o.suggestion) : []),
       suggestedOutline: fb.suggestedOutline || [],
       paragraphLevelAdvice: fb.paragraphLevelAdvice || [],
       comparison: fb.comparison,
-      meta: { retries: resp.retries || 0, confidence: 'medium' }
+      meta: { retries: resp.retries || 0, confidence: fb.error ? 'low' : 'medium' }
     };
 
     db.data.reportFeedback = [feedback, ...db.data.reportFeedback.filter((f) => f.submissionId !== submissionId)].slice(
