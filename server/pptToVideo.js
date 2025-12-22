@@ -4,44 +4,11 @@ const path = require('path');
 const fs = require('fs');
 const fsp = require('fs/promises');
 const os = require('os');
-const { Readable } = require('stream');
-const { createCanvas } = require('@napi-rs/canvas');
+const { Worker } = require('worker_threads');
 const { vodOpenapi, edit } = require('@volcengine/openapi');
-const { TosClient } = require('@volcengine/tos-sdk');
-const axios = require('axios');
+const { uploadToTos } = require('./tosUpload');
 
-let pdfjsLibPromise = null;
-const workerFilePath = require.resolve('pdfjs-dist/legacy/build/pdf.worker.mjs');
-const loadPdfJs = async () => {
-  if (!pdfjsLibPromise) {
-    pdfjsLibPromise = import('pdfjs-dist/legacy/build/pdf.mjs');
-  }
-  const lib = await pdfjsLibPromise;
-  if (!lib.GlobalWorkerOptions.workerSrc) {
-    try {
-      const workerCode = await fsp.readFile(workerFilePath, 'utf8');
-      const workerDataUrl = `data:application/javascript;base64,${Buffer.from(workerCode, 'utf8').toString('base64')}`;
-      lib.GlobalWorkerOptions.workerSrc = workerDataUrl;
-    } catch (err) {
-      console.warn('[ppt-to-video] inline worker failed, fallback to disableWorker', err?.message || err);
-      lib.GlobalWorkerOptions.workerSrc = '';
-    }
-  }
-  return lib;
-};
-
-const buildPdfOptions = (pdfData) => ({
-  data: pdfData,
-  useSystemFonts: true,
-  isEvalSupported: false,
-  disableFontFace: false,
-  disableWorker: true,
-  disableRange: true,
-  disableStream: true,
-  disableAutoFetch: true,
-  isOffscreenCanvasSupported: false,
-  disableCreateObjectURL: true
-});
+const pdfRenderWorkerPath = path.join(__dirname, 'pdfRendererWorker.js');
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -51,60 +18,6 @@ const upload = multer({
 const pptVideoTasks = new Map(); // taskId -> task data
 const vodService = vodOpenapi.defaultService;
 const editService = edit.defaultService;
-let tosClient = null;
-let tosEndpointHost = '';
-let tosBucket = '';
-let tosRegion = '';
-
-const ensureTosClient = (taskId) => {
-  const accessKeyId = process.env.VOLC_ACCESS_KEY_ID || process.env.VOLC_ACCESSKEY;
-  const secretKey = process.env.VOLC_SECRET_ACCESS_KEY || process.env.VOLC_SECRETKEY;
-  const bucket = (process.env.VOLC_TOS_BUCKET || '').trim();
-  const region = (process.env.VOLC_TOS_REGION || '').trim();
-  const endpoint = (process.env.VOLC_TOS_ENDPOINT || '').trim();
-  if (!bucket || !region || !endpoint) {
-    const message = `[ENV MISSING] bucket=${bucket} region=${region} endpoint=${endpoint}`;
-    if (taskId) {
-      setTask(taskId, { log: { ts: Date.now(), message } });
-    }
-    throw new Error(message);
-  }
-  if (!endpoint.startsWith('https://tos-')) {
-    const message = `[ENV INVALID] endpoint=${endpoint}`;
-    if (taskId) {
-      setTask(taskId, { log: { ts: Date.now(), message } });
-    }
-    throw new Error(message);
-  }
-  if (!accessKeyId || !secretKey) {
-    throw new Error('缺少 TOS 配置：请设置 VOLC_ACCESS_KEY_ID、VOLC_SECRET_ACCESS_KEY');
-  }
-  if (!tosClient) {
-    let endpointHost = '';
-    try {
-      const url = new URL(endpoint);
-      endpointHost = url.host;
-    } catch (e) {
-      throw new Error(`TOS endpoint 无法解析，请检查 VOLC_TOS_ENDPOINT，当前值：${endpoint}`);
-    }
-    tosEndpointHost = endpointHost;
-    tosBucket = bucket;
-    tosRegion = region;
-    tosClient = new TosClient({
-      accessKeyId,
-      accessKeySecret: secretKey,
-      bucket,
-      region,
-      endpoint
-    });
-    const tosInfo = { bucket, region, endpoint };
-    console.log('[TOS ENV]', tosInfo);
-    if (taskId) {
-      setTask(taskId, { log: { ts: Date.now(), message: `[TOS ENV] ${JSON.stringify(tosInfo)}` } });
-    }
-  }
-  return { client: tosClient, bucket, region, endpointHost: tosEndpointHost, endpoint };
-};
 
 const parseResolution = (value = '1280x720') => {
   const match = `${value}`.match(/(\d+)\s*x\s*(\d+)/);
@@ -163,63 +76,86 @@ const toUint8 = (data) => {
   return new Uint8Array(data);
 };
 
-const renderPdfToImages = async ({ buffer, resolution, tempDir, taskId }) => {
-  const pdfjsLib = await loadPdfJs();
-  const pdfData = toUint8(buffer);
-  const { width: targetWidth, height: targetHeight } = resolution;
-  const images = [];
-  const loadingTask = pdfjsLib.getDocument(buildPdfOptions(pdfData));
-  let pdf;
-  try {
-    pdf = await loadingTask.promise;
-  } catch (err) {
-    throw new Error(`PDF 解析失败：${err?.message || err}`);
+const toArrayBuffer = (data) => {
+  if (data instanceof ArrayBuffer) return data;
+  if (ArrayBuffer.isView(data)) {
+    return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
   }
-  const total = pdf.numPages || 0;
-  for (let i = 1; i <= total; i++) {
-    try {
-      const page = await pdf.getPage(i);
-      const unscaledViewport = page.getViewport({ scale: 1 });
-      const scale = Math.max(targetWidth / unscaledViewport.width, targetHeight / unscaledViewport.height);
-      const viewport = page.getViewport({ scale });
+  if (Buffer.isBuffer(data)) {
+    return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+  }
+  throw new Error('Unsupported buffer type for transfer');
+};
 
-      const canvas = createCanvas(targetWidth, targetHeight);
-      const context = canvas.getContext('2d');
-      context.fillStyle = '#FFFFFF';
-      context.fillRect(0, 0, targetWidth, targetHeight);
-
-      const offsetX = Math.max(0, (targetWidth - viewport.width) / 2);
-      const offsetY = Math.max(0, (targetHeight - viewport.height) / 2);
-
-      await page.render({
-        canvasContext: context,
-        viewport,
-        transform: [1, 0, 0, 1, offsetX, offsetY]
-      }).promise;
-
-      const fileName = `page-${String(i).padStart(3, '0')}.png`;
-      const filePath = path.join(tempDir, fileName);
-      const pngBuffer = canvas.toBuffer('image/png');
-      await fsp.writeFile(filePath, pngBuffer);
-      images.push({ fileName, filePath, buffer: pngBuffer, width: targetWidth, height: targetHeight });
-      setTask(taskId, {
-        status: 'processing',
-        progress: Math.round((i / total) * 40),
-        message: `正在解析 PDF 第 ${i}/${total} 页`
-      });
-    } catch (err) {
-      throw new Error(`渲染第 ${i} 页失败：${err?.message || err}`);
+const runPdfWorker = (payload) =>
+  new Promise((resolve, reject) => {
+    const worker = new Worker(pdfRenderWorkerPath);
+    const transferList = [];
+    if (payload.buffer instanceof ArrayBuffer) {
+      transferList.push(payload.buffer);
     }
+    const timer = setTimeout(() => {
+      worker.terminate();
+      reject(new Error('PDF 解析超时，请重试'));
+    }, 120000);
+    const finalize = (err, data) => {
+      clearTimeout(timer);
+      try {
+        worker.terminate();
+      } catch (e) {
+        // ignore terminate errors
+      }
+      if (err) return reject(err);
+      return resolve(data);
+    };
+    worker.on('message', (msg) => {
+      if (!msg || typeof msg !== 'object') return;
+      if (msg.type === 'ERROR') {
+        finalize(new Error(`PDF 解析失败：${msg.message || 'worker error'}`));
+        return;
+      }
+      finalize(null, msg);
+    });
+    worker.on('error', (err) => finalize(err));
+    worker.postMessage(payload, transferList);
+  });
+
+const renderPdfToImages = async ({ buffer, resolution, tempDir, taskId }) => {
+  const { width: targetWidth, height: targetHeight } = resolution;
+  const pdfBuffer = toArrayBuffer(buffer);
+  const result = await runPdfWorker({
+    type: 'PARSE_PDF',
+    buffer: pdfBuffer,
+    width: targetWidth,
+    height: targetHeight
+  });
+  const pages = Array.isArray(result?.pages) ? result.pages : [];
+  if (!pages.length) {
+    throw new Error('PDF 解析失败：未获取到任何页面');
+  }
+  const images = [];
+  const total = result.pageCount || pages.length;
+  for (let idx = 0; idx < pages.length; idx++) {
+    const page = pages[idx];
+    const fileName = `page-${String(page.index || idx + 1).padStart(3, '0')}.png`;
+    const filePath = path.join(tempDir, fileName);
+    const pngBuffer = Buffer.from(page.pngBuffer);
+    await fsp.writeFile(filePath, pngBuffer);
+    images.push({ fileName, filePath, buffer: pngBuffer, width: targetWidth, height: targetHeight });
+    setTask(taskId, {
+      status: 'processing',
+      progress: Math.round(((idx + 1) / total) * 40),
+      message: `正在解析 PDF 第 ${idx + 1}/${total} 页`
+    });
   }
   return images;
 };
 
 const getPdfPageCount = async (buffer) => {
-  const pdfjsLib = await loadPdfJs();
-  const pdfData = toUint8(buffer);
-  const loadingTask = pdfjsLib.getDocument(buildPdfOptions(pdfData));
-  const pdf = await loadingTask.promise;
-  return pdf.numPages || 0;
+  const pdfBuffer = toArrayBuffer(buffer);
+  const result = await runPdfWorker({ type: 'PAGE_COUNT', buffer: pdfBuffer });
+  if (typeof result?.pageCount === 'number') return result.pageCount;
+  throw new Error('未获取到 PDF 页数');
 };
 
 const sanitizeUploadName = (fileName, idx, taskId) => {
@@ -233,49 +169,17 @@ const sanitizeUploadName = (fileName, idx, taskId) => {
 };
 
 const uploadImagesToTos = async ({ images, taskId }) => {
-  const { client, bucket, endpointHost, region } = ensureTosClient(taskId);
-  const publicBase = `https://${bucket}.${endpointHost}`;
   const uploaded = [];
   for (let i = 0; i < images.length; i++) {
     const img = images[i];
     try {
       const finalName = sanitizeUploadName(img.fileName, i, taskId);
-      const putInput = {
-        bucket,
+      const { url } = await uploadToTos({
         key: finalName,
         body: img.buffer,
-        contentLength: img.buffer.length,
-        contentType: 'image/png'
-      };
-      console.log(`[ppt-to-video][${taskId}] uploading image to TOS`, {
-        bucket,
-        region,
-        key: finalName,
-        size: img.buffer.length
+        contentType: 'image/png',
+        taskId
       });
-      await client.putObject(putInput);
-      let url = `${publicBase}/${encodeURIComponent(finalName).replace(/%2F/g, '/')}`;
-      try {
-        const signed = await client.getPreSignedUrl({
-          method: 'GET',
-          key: finalName,
-          expires: 3600
-        });
-        if (signed?.signedUrl) {
-          url = signed.signedUrl;
-        }
-      } catch (e) {
-        console.warn(`[ppt-to-video][${taskId}] presign failed, fallback to public URL`, e?.message || e);
-      }
-      try {
-        // quick availability check
-        const headRes = await axios.head(url, { validateStatus: (s) => s < 500 });
-        if (headRes.status >= 400) {
-          throw new Error(`图片 URL 不可访问: ${url} status=${headRes.status}`);
-        }
-      } catch (e) {
-        throw new Error(`图片 URL 不可访问: ${url} detail=${e?.message || e}`);
-      }
       uploaded.push({
         url,
         key: finalName,

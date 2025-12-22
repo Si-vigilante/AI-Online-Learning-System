@@ -1,6 +1,9 @@
 require('dotenv').config();
 const express = require('express');
 const http = require('http');
+const https = require('https');
+const dns = require('dns');
+const { setGlobalDispatcher, Agent } = require('undici');
 const cors = require('cors');
 const { Server } = require('socket.io');
 const { LowSync, JSONFileSync } = require('lowdb');
@@ -12,6 +15,54 @@ const { getMockCourseContent } = require('./mocks/courseContent');
 const { QUESTION_BANK } = require('./mocks/questionBank');
 const { randomUUID } = require('crypto');
 const multer = require('multer');
+
+// ===== Diagnostics: intercept bad hosts in dev to surface .https usage =====
+if (process.env.NODE_ENV !== 'production') {
+  const rawLookup = dns.lookup.bind(dns);
+  dns.lookup = function (hostname, ...rest) {
+    if (typeof hostname === 'string' && hostname.includes('.https')) {
+      console.error('[DNS LOOKUP HIT BAD HOST]', hostname, new Error().stack);
+    }
+    return rawLookup(hostname, ...rest);
+  };
+  if (dns.promises?.lookup) {
+    const rawLookupPromise = dns.promises.lookup.bind(dns.promises);
+    dns.promises.lookup = async function (hostname, ...rest) {
+      if (typeof hostname === 'string' && hostname.includes('.https')) {
+        console.error('[DNS PROMISE LOOKUP HIT BAD HOST]', hostname, new Error().stack);
+      }
+      return rawLookupPromise(hostname, ...rest);
+    };
+  }
+  const wrapRequest = (mod, name) => {
+    const raw = mod.request.bind(mod);
+    mod.request = function (options, cb) {
+      const host =
+        typeof options === 'string'
+          ? options
+          : options?.hostname || options?.host || (typeof options?.href === 'string' ? options.href : undefined);
+      if (host && String(host).includes('.https')) {
+        console.error(`[${name}.request BAD HOST]`, host, options, new Error().stack);
+      }
+      return raw(options, cb);
+    };
+  };
+  wrapRequest(http, 'http');
+  wrapRequest(https, 'https');
+
+  // undici (fetch) interception to catch .https hosts
+  const originalAgentConnect = Agent.prototype.connect;
+  const diagAgent = new Agent({
+    connect: function (opts, cb) {
+      const host = opts?.hostname || opts?.host;
+      if (host && String(host).includes('.https')) {
+        console.error('[HIT undici.connect BAD HOST]', host, opts, new Error('undici.connect stack').stack);
+      }
+      return originalAgentConnect.call(this, opts, cb);
+    }
+  });
+  setGlobalDispatcher(diagAgent);
+}
 
 const app = express();
 const server = http.createServer(app);
