@@ -32,6 +32,8 @@ export function PPTToVideo({ onNavigate }: PPTToVideoProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const simulateTimerRef = useRef<number | null>(null);
   const simulateIntervalRef = useRef<number | null>(null);
+  const progressIntervalRef = useRef<number | null>(null);
+  const progressStageTimeoutRef = useRef<number | null>(null);
 
   const transitionOptions = [
     { value: 'none', label: '无转场' },
@@ -73,25 +75,7 @@ export function PPTToVideo({ onNavigate }: PPTToVideoProps) {
     setMessage('等待开始生成');
   };
 
-  const handleGenerate = async () => {
-    if (!file) {
-      setError('请先上传由 PPT 导出的 PDF 文件');
-      return;
-    }
-    setError(null);
-    setHasGenerated(false);
-    setStatus('processing');
-    setMessage('正在解析 PDF 并转换视频（约 20-30 秒）...');
-    setIsGenerating(true);
-    setProgress(0);
-    setVideoUrl('');
-    setDownloadUrl('');
-    setTaskId(null);
-
-    const durationMs = 24000 + Math.random() * 4000; // 24-28 秒
-    const start = performance.now();
-
-    // 清理旧定时器
+  const clearSimulations = () => {
     if (simulateIntervalRef.current) {
       clearInterval(simulateIntervalRef.current);
       simulateIntervalRef.current = null;
@@ -100,19 +84,72 @@ export function PPTToVideo({ onNavigate }: PPTToVideoProps) {
       clearTimeout(simulateTimerRef.current);
       simulateTimerRef.current = null;
     }
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current);
+      progressIntervalRef.current = null;
+    }
+    if (progressStageTimeoutRef.current) {
+      clearTimeout(progressStageTimeoutRef.current);
+      progressStageTimeoutRef.current = null;
+    }
+  };
 
-    simulateIntervalRef.current = window.setInterval(() => {
-      const elapsed = performance.now() - start;
-      const pct = Math.min(99, Math.round((elapsed / durationMs) * 100));
-      setProgress(pct);
-      setMessage(pct < 99 ? '正在解析中...' : '准备完成...');
-    }, 1200);
+  const handleGenerate = async () => {
+    if (!file) {
+      setError('请先上传由 PPT 导出的 PDF 文件');
+      return;
+    }
+    setError(null);
+    setHasGenerated(false);
+    setStatus('processing');
+    setMessage('正在解析 PDF 并转换视频，请稍候...');
+    setIsGenerating(true);
+    setProgress(5);
+    setVideoUrl('');
+    setDownloadUrl('');
+    setTaskId(null);
+
+    clearSimulations();
+
+    const durationMs = 40000 + Math.random() * 10000; // 40-50 秒
+
+    // 阶段1：拉长前半段，每 5 秒跳 7-10%，直到约 55%
+    progressIntervalRef.current = window.setInterval(() => {
+      setProgress((prev) => {
+        const jump = 7 + Math.random() * 3;
+        const next = Math.min(55, prev + jump);
+        if (next >= 55 && progressIntervalRef.current) {
+          clearInterval(progressIntervalRef.current);
+          progressIntervalRef.current = null;
+          setProgress(55);
+          // 阶段2：停顿到 58%，再跃迁到 75%
+          progressStageTimeoutRef.current = window.setTimeout(() => {
+            setProgress(58);
+            setMessage('正在优化转场与字幕...');
+            setTimeout(() => {
+              setProgress(75);
+              setMessage('渲染视频...');
+              // 阶段3：75 -> 99 逐步递增
+              progressIntervalRef.current = window.setInterval(() => {
+                setProgress((p) => {
+                  const inc = 1 + Math.random() * 2.5;
+                  const nextVal = Math.min(99, p + inc);
+                  if (nextVal >= 99 && progressIntervalRef.current) {
+                    clearInterval(progressIntervalRef.current);
+                    progressIntervalRef.current = null;
+                  }
+                  return nextVal;
+                });
+              }, 1000);
+            }, 1000); // 跃迁小延时
+          }, 1400); // 停顿
+        }
+        return next;
+      });
+    }, 5000);
 
     simulateTimerRef.current = window.setTimeout(() => {
-      if (simulateIntervalRef.current) {
-        clearInterval(simulateIntervalRef.current);
-        simulateIntervalRef.current = null;
-      }
+      clearSimulations();
       const sizeLabel = slidesMeta?.size || `${(file.size / 1024 / 1024).toFixed(1)} MB`;
       setSlidesMeta((prev) => ({
         size: sizeLabel,
@@ -124,17 +161,15 @@ export function PPTToVideo({ onNavigate }: PPTToVideoProps) {
       setStatus('success');
       setIsGenerating(false);
       setHasGenerated(true);
-      const assetVideo = '/assest/数字媒体设计基础视频_1212.mp4';
-      setVideoUrl(assetVideo);
-      setDownloadUrl(assetVideo);
+      setVideoUrl('/assest/数字媒体设计基础视频_1212.mp4');
+      setDownloadUrl('/assest/数字媒体程序基础视频_1222.mp4');
     }, durationMs);
   };
 
   // 清理模拟定时器
   useEffect(() => {
     return () => {
-      if (simulateIntervalRef.current) clearInterval(simulateIntervalRef.current);
-      if (simulateTimerRef.current) clearTimeout(simulateTimerRef.current);
+      clearSimulations();
     };
   }, []);
 
@@ -307,7 +342,18 @@ export function PPTToVideo({ onNavigate }: PPTToVideoProps) {
               ) : null}
               
               {hasGenerated && downloadUrl && (
-                <Button variant="primary" fullWidth onClick={() => window.open(downloadUrl, '_blank')}>
+                <Button
+                  variant="primary"
+                  fullWidth
+                  onClick={() => {
+                    const link = document.createElement('a');
+                    link.href = downloadUrl;
+                    link.download = '数字媒体程序基础视频_1222.mp4';
+                    document.body.appendChild(link);
+                    link.click();
+                    link.remove();
+                  }}
+                >
                   <Download className="w-4 h-4" />
                   下载视频
                 </Button>

@@ -381,7 +381,14 @@ const defaultCourses: Course[] = [
     materials: [
       { id: randomId(), title: 'Academic English Reading Pack.pdf', type: 'pdf', size: '1.5MB' },
       { id: randomId(), title: 'Presentation Toolkit.ppt', type: 'ppt', size: '6.2MB' },
-      { id: randomId(), title: 'Writing Checklist & Citation Guide.doc', type: 'doc', size: '780KB' }
+      { id: randomId(), title: 'Writing Checklist & Citation Guide.doc', type: 'doc', size: '780KB' },
+      {
+        id: deterministicId('大学英语-教学大纲'),
+        title: '大学英语C教学大纲.pdf',
+        type: 'pdf',
+        size: '2.0MB',
+        url: '/assest/大学英语C教学大纲.pdf'
+      }
     ],
     learningPath: [
       { id: 'lp1', title: '阅读理解', progress: 40, nodes: ['信号词', '长难句', '主旨'] },
@@ -806,14 +813,25 @@ export const ensureCourseSeed = () => {
     const exists = merged.find((item) => item.id === course.id || item.title === course.title);
     if (!exists) {
       merged.push(course);
-    } else if (course.contentSources?.length) {
-      const existingSources = exists.contentSources || [];
-      course.contentSources.forEach((src) => {
-        if (!existingSources.find((item) => item.url === src.url)) {
-          existingSources.push(src);
-        }
-      });
-      exists.contentSources = existingSources;
+    } else {
+      if (course.contentSources?.length) {
+        const existingSources = exists.contentSources || [];
+        course.contentSources.forEach((src) => {
+          if (!existingSources.find((item) => item.url === src.url)) {
+            existingSources.push(src);
+          }
+        });
+        exists.contentSources = existingSources;
+      }
+      if (course.materials?.length) {
+        const existingMaterials = exists.materials || [];
+        course.materials.forEach((mat) => {
+          if (!existingMaterials.find((item) => item.title === mat.title)) {
+            existingMaterials.push(mat);
+          }
+        });
+        exists.materials = existingMaterials;
+      }
     }
   });
 
