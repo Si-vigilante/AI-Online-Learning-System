@@ -61,6 +61,7 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
   const [timerSeconds, setTimerSeconds] = useState(0);
   const [timerRunning, setTimerRunning] = useState(false);
   const [timerTotal, setTimerTotal] = useState(0);
+  const [customMinutes, setCustomMinutes] = useState(15);
   const [switcherCollapsed, setSwitcherCollapsed] = useState(false);
   const [musicCollapsed, setMusicCollapsed] = useState(false);
 
@@ -238,6 +239,7 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
 
   const handlePlayPause = async () => {
     markActive();
+    clearSceneTimer();
     if (isPlaying) {
       activeAudio.pause();
       logDebug('pause', { src: activeAudio.src, volume: activeAudio.volume });
@@ -357,7 +359,7 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
         <div
           className="fixed pointer-events-auto"
           style={{
-            bottom: `calc(40px + ${positions.switcher.y}px)`,
+            top: `calc(100vh - 140px + ${positions.switcher.y}px)`,
             left: '50%',
             transform: `translate(-50%, 0) translate(${positions.switcher.x}px, ${positions.switcher.y}px)`
           }}
@@ -392,7 +394,7 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
           <div
           className="fixed pointer-events-auto"
           style={{
-            bottom: `calc(40px + ${positions.music.y}px)`,
+            top: `calc(100vh - 200px + ${positions.music.y}px)`,
             left: `calc(16px + ${positions.music.x}px)`
           }}
         >
@@ -468,7 +470,7 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
         <div
           className="fixed pointer-events-auto"
           style={{
-            bottom: `calc(24px + ${positions.room.y}px)`,
+            top: `calc(100vh - 220px + ${positions.room.y}px)`,
             right: `calc(24px + ${positions.room.x}px)`
           }}
         >
@@ -544,34 +546,47 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
                       }}
                     />
                   </div>
-                  <div className="flex gap-2 flex-wrap">
+                  <div className="flex gap-2 flex-wrap items-center">
                     <Button size="sm" variant="secondary" onClick={() => startTimer(25)}>
                       25 min
                     </Button>
                     <Button size="sm" variant="secondary" onClick={() => startTimer(50)}>
                       50 min
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => {
-                      setTimerRunning((v) => !v);
-                      markActive();
-                    }}
-                  >
-                    {timerRunning ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => {
-                      setTimerSeconds(0);
-                      setTimerRunning(false);
-                    }}
-                  >
-                    <TimerReset className="w-4 h-4" />
-                  </Button>
-                </div>
+                    </Button>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={1}
+                        max={180}
+                        value={customMinutes}
+                        onChange={(e) => setCustomMinutes(Math.max(1, Math.min(180, Number(e.target.value) || 1)))}
+                        className="w-16 px-2 py-1 text-sm rounded bg-white/10 border border-white/25 text-white outline-none"
+                      />
+                      <Button size="sm" variant="secondary" onClick={() => startTimer(customMinutes)}>
+                        自定义
+                      </Button>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        setTimerRunning((v) => !v);
+                        markActive();
+                      }}
+                    >
+                      {timerRunning ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        setTimerSeconds(0);
+                        setTimerRunning(false);
+                      }}
+                    >
+                      <TimerReset className="w-4 h-4" />
+                    </Button>
+                  </div>
               </div>
 
               <div className="rest-card">
