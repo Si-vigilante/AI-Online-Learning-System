@@ -185,6 +185,9 @@ const defaultCourses: Course[] = [
     rating: 4.8,
     thumbnail: '/image/马克思主义基本原理.png',
     description: '从现实问题出发理解马克思主义的基本立场、观点与方法，结合案例体会理论的现实意义与思辨力量。',
+    contentSources: [
+      { type: 'file', name: '马克思主义基本原理 课程视频', url: '/video/马克思主义基本原理.mp4' }
+    ],
     createdBy: 'system',
     createdAt: new Date().toISOString(),
     ...generateCourseScaffold('马克思主义基本原理')
@@ -401,6 +404,9 @@ const defaultCourses: Course[] = [
     rating: 4.88,
     thumbnail: '/image/离散数学.jpg',
     description: '覆盖集合、逻辑、图论与组合数学等核心知识，配合算法思维练习，帮助学生建立严谨的离散模型化能力。',
+    contentSources: [
+      { type: 'file', name: '离散数学 课程视频', url: '/video/离散数学.mp4' }
+    ],
     learningGoals: [
       '掌握命题与谓词逻辑的推理方法',
       '理解集合、关系与函数的基本性质',
@@ -453,6 +459,75 @@ const defaultCourses: Course[] = [
       { id: 'lp4', title: '组合思维', progress: 15, nodes: ['计数', '递推', '算法化'] }
     ],
     framework: '离散数学教案：以逻辑与证明为底座，结合图论与计数的算法化案例，强化建模与推理训练。',
+    createdBy: 'system',
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: deterministicId('计算机图形学'),
+    title: '计算机图形学',
+    instructor: '林越',
+    category: 'programming',
+    level: '核心',
+    students: 342,
+    duration: '10周',
+    rating: 4.86,
+    thumbnail: '',
+    description: '从图形流水线到着色器编程，涵盖几何表示、光栅化、光照与动画基础，帮助学生搭建实时渲染思维。',
+    contentSources: [
+      { type: 'file', name: '计算机图形学 课程视频', url: '/video/计算机图形学.mp4' }
+    ],
+    learningGoals: [
+      '理解现代渲染管线与矩阵变换的核心流程',
+      '掌握几何建模、投影与视口变换的实现方法',
+      '能够编写基础着色器完成光照、纹理与简单动画',
+      '独立实现一个包含交互的实时渲染小项目'
+    ],
+    curriculum: [
+      {
+        id: 'c1',
+        title: '图形管线与几何基础',
+        lessons: [
+          { id: 'l1', title: '现代图形管线概览', duration: '22分钟' },
+          { id: 'l2', title: '向量矩阵与模型-视图-投影', duration: '25分钟' },
+          { id: 'l3', title: '裁剪与视口变换', duration: '18分钟' }
+        ]
+      },
+      {
+        id: 'c2',
+        title: '着色与光照',
+        lessons: [
+          { id: 'l4', title: '着色器编程入门', duration: '24分钟' },
+          { id: 'l5', title: '基础光照模型与纹理映射', duration: '26分钟' },
+          { id: 'l6', title: '阴影与简单后处理', duration: '20分钟' }
+        ]
+      },
+      {
+        id: 'c3',
+        title: '光栅化与交互动画',
+        lessons: [
+          { id: 'l7', title: '光栅化细节与抗锯齿', duration: '23分钟' },
+          { id: 'l8', title: '骨骼与关键帧动画基础', duration: '25分钟' },
+          { id: 'l9', title: '实时交互项目实战', duration: '30分钟', locked: true }
+        ]
+      }
+    ],
+    knowledgeSplits: [
+      { chapter: '几何与变换', points: ['模型/视图/投影', '裁剪', '视口'] },
+      { chapter: '着色与光照', points: ['着色器', '光照模型', '纹理'] },
+      { chapter: '光栅化与动画', points: ['抗锯齿', '动画', '交互项目'] }
+    ],
+    materials: [
+      { id: randomId(), title: 'Graphics Pipeline Overview.pdf', type: 'pdf', size: '2.3MB' },
+      { id: randomId(), title: 'Shader Basics.ppt', type: 'ppt', size: '5.1MB' },
+      { id: randomId(), title: 'Rendering Tips & Labs.doc', type: 'doc', size: '920KB' }
+    ],
+    learningPath: [
+      { id: 'lp1', title: '渲染基础', progress: 38, nodes: ['管线', '矩阵', '视口'] },
+      { id: 'lp2', title: '着色实践', progress: 26, nodes: ['着色器', '光照', '纹理'] },
+      { id: 'lp3', title: '实时交互', progress: 18, nodes: ['光栅化', '动画', '交互'] },
+      { id: 'lp4', title: '作品打磨', progress: 12, nodes: ['优化', '展示', '反馈'] }
+    ],
+    framework: '计算机图形学教案：以现代渲染管线为主线，结合着色器与交互案例，搭建从几何到光栅化的完整实战路径。',
     createdBy: 'system',
     createdAt: new Date().toISOString()
   },
@@ -731,6 +806,14 @@ export const ensureCourseSeed = () => {
     const exists = merged.find((item) => item.id === course.id || item.title === course.title);
     if (!exists) {
       merged.push(course);
+    } else if (course.contentSources?.length) {
+      const existingSources = exists.contentSources || [];
+      course.contentSources.forEach((src) => {
+        if (!existingSources.find((item) => item.url === src.url)) {
+          existingSources.push(src);
+        }
+      });
+      exists.contentSources = existingSources;
     }
   });
 

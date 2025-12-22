@@ -1,15 +1,16 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Card } from '../design-system/Card';
 import { Button } from '../design-system/Button';
 import { Tabs } from '../design-system/Tabs';
 import { Play, Pause, Volume2, Settings, Maximize, BookOpen, MessageSquare, Lightbulb, ChevronRight, Languages, Sparkles, Cloud, Save, RefreshCw, User, Mic, PlayCircle } from 'lucide-react';
 import { QuestionCard } from '../design-system/QuestionCard';
+import { Course, getCourseById, getCurrentCourseId } from '../../services/courses';
 
 interface VideoPlayerProps {
   onNavigate: (page: string) => void;
 }
 
-const duration = 25 * 60 + 40; // 25:40
+const defaultDuration = 25 * 60 + 40; // 25:40
 const subtitleLines = {
   zh: '神经网络通过多层非线性变换来近似复杂函数，本节课讲解了核心直觉。',
   en: 'Neural networks approximate complex functions via stacked nonlinear layers; this lesson explains the intuition.',
@@ -27,11 +28,10 @@ const initialNotes = [
   { id: 2, time: 342, content: '神经网络的三个核心组成部分' }
 ];
 
-const storageKey = 'immersive-course-player-state';
-
 const formatTime = (seconds: number) => {
-  const mins = Math.floor(seconds / 60).toString().padStart(2, '0');
-  const secs = Math.floor(seconds % 60).toString().padStart(2, '0');
+  const safeSeconds = Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
+  const mins = Math.floor(safeSeconds / 60).toString().padStart(2, '0');
+  const secs = Math.floor(safeSeconds % 60).toString().padStart(2, '0');
   return `${mins}:${secs}`;
 };
 
@@ -52,12 +52,37 @@ export function VideoPlayer({ onNavigate }: VideoPlayerProps) {
   const [avatarVoice, setAvatarVoice] = useState<'温和' | '正式' | '活泼'>('温和');
   const [avatarScript, setAvatarScript] = useState('我是数字人讲师，将为你概述本节重点：1）深度学习定义；2）常见应用；3）本节测验建议。');
   const [avatarPlaying, setAvatarPlaying] = useState(false);
+  const [course, setCourse] = useState<Course | null>(null);
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [duration, setDuration] = useState(defaultDuration);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const storageKeyBase = 'immersive-course-player-state';
+  const storageKey = course?.id ? `${storageKeyBase}-${course.id}` : storageKeyBase;
 
   const tabs = [
     { key: 'notes', label: '笔记', icon: <BookOpen className="w-4 h-4" /> },
     { key: 'discussion', label: '讨论', icon: <MessageSquare className="w-4 h-4" /> },
     { key: 'keypoints', label: '知识点', icon: <Lightbulb className="w-4 h-4" /> }
   ];
+
+  useEffect(() => {
+    const currentCourseId = getCurrentCourseId();
+    if (!currentCourseId) {
+      setCourse(null);
+      setVideoUrl(null);
+      return;
+    }
+    const found = getCourseById(currentCourseId);
+    setCourse(found || null);
+    const fileSource = found?.contentSources?.find((item) => item.type === 'file' && item.url);
+    setVideoUrl(fileSource?.url || null);
+    setDuration(defaultDuration);
+    setCurrentTime(0);
+    setSyncStatus('等待同步...');
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -73,9 +98,47 @@ export function VideoPlayer({ onNavigate }: VideoPlayerProps) {
         console.error('Failed to load player state', err);
       }
     }
-  }, []);
+  }, [storageKey]);
 
   useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !videoUrl) return;
+
+    const handleLoadedMetadata = () => {
+      const videoDuration = Number.isFinite(video.duration) ? video.duration : defaultDuration;
+      setDuration(videoDuration || defaultDuration);
+      setCurrentTime((prev) => Math.min(prev, videoDuration || defaultDuration));
+    };
+    const handleTimeUpdate = () => setCurrentTime(video.currentTime);
+    const handlePlay = () => setIsPlaying(true);
+    const handlePause = () => setIsPlaying(false);
+    const handleEnded = () => setIsPlaying(false);
+
+    video.playbackRate = playbackRate;
+    video.muted = isMuted;
+
+    video.addEventListener('loadedmetadata', handleLoadedMetadata);
+    video.addEventListener('timeupdate', handleTimeUpdate);
+    video.addEventListener('play', handlePlay);
+    video.addEventListener('pause', handlePause);
+    video.addEventListener('ended', handleEnded);
+
+    return () => {
+      video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      video.removeEventListener('timeupdate', handleTimeUpdate);
+      video.removeEventListener('play', handlePlay);
+      video.removeEventListener('pause', handlePause);
+      video.removeEventListener('ended', handleEnded);
+    };
+  }, [videoUrl, playbackRate, isMuted]);
+
+  useEffect(() => {
+    if (!videoRef.current) return;
+    videoRef.current.playbackRate = playbackRate;
+  }, [playbackRate]);
+
+  useEffect(() => {
+    if (videoRef.current && videoUrl) return;
     if (!isPlaying) return;
     const ticker = setInterval(() => {
       setCurrentTime((prev) => {
@@ -85,7 +148,7 @@ export function VideoPlayer({ onNavigate }: VideoPlayerProps) {
       });
     }, 1000);
     return () => clearInterval(ticker);
-  }, [isPlaying, playbackRate]);
+  }, [isPlaying, playbackRate, duration, videoUrl]);
 
   useEffect(() => {
     const syncTimer = setTimeout(() => {
@@ -94,13 +157,14 @@ export function VideoPlayer({ onNavigate }: VideoPlayerProps) {
         currentTime,
         playbackRate,
         subtitleLang,
+        courseId: course?.id,
         updatedAt: Date.now()
       };
       localStorage.setItem(storageKey, JSON.stringify(payload));
       setSyncStatus(`已同步 · ${new Date(payload.updatedAt).toLocaleTimeString()}`);
     }, 400);
     return () => clearTimeout(syncTimer);
-  }, [currentTime, playbackRate, subtitleLang]);
+  }, [currentTime, playbackRate, subtitleLang, storageKey, course?.id]);
 
   useEffect(() => {
     const matched = knowledgePoints.find((kp) => Math.abs(kp.time - currentTime) < 1);
@@ -109,6 +173,9 @@ export function VideoPlayer({ onNavigate }: VideoPlayerProps) {
 
   const handleSeek = (value: number) => {
     setCurrentTime(value);
+    if (videoRef.current) {
+      videoRef.current.currentTime = value;
+    }
   };
 
   const handleAddNote = () => {
@@ -132,6 +199,44 @@ export function VideoPlayer({ onNavigate }: VideoPlayerProps) {
     setAiNoteSummary(`AI 整理：${stitched}`);
   };
 
+  const handleToggleFullscreen = async () => {
+    const target = containerRef.current;
+    if (!target) return;
+    if (!document.fullscreenElement) {
+      await target.requestFullscreen().catch(() => undefined);
+      setIsFullscreen(true);
+    } else {
+      await document.exitFullscreen().catch(() => undefined);
+      setIsFullscreen(false);
+    }
+  };
+
+  const handleVolumeToggle = () => {
+    setIsMuted((prev) => !prev);
+    if (videoRef.current) {
+      videoRef.current.muted = !isMuted;
+    }
+  };
+
+  useEffect(() => {
+    const onFsChange = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener('fullscreenchange', onFsChange);
+    return () => document.removeEventListener('fullscreenchange', onFsChange);
+  }, []);
+
+  const togglePlayPause = () => {
+    const video = videoRef.current;
+    if (video) {
+      if (video.paused) {
+        video.play().catch(() => undefined);
+      } else {
+        video.pause();
+      }
+      return;
+    }
+    setIsPlaying((prev) => !prev);
+  };
+
   return (
     <div className="min-h-screen bg-[#F8F9FA]">
       <div className="container-custom py-6">
@@ -139,16 +244,40 @@ export function VideoPlayer({ onNavigate }: VideoPlayerProps) {
           {/* Main Video Area */}
           <div className="lg:col-span-2 space-y-6">
             {/* Video Player */}
+            <div ref={containerRef}>
             <Card className="overflow-hidden">
-              <div className="aspect-video bg-gradient-to-br from-[#212529] to-[#495057] relative">
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <Button 
-                    size="lg"
-                    onClick={() => setIsPlaying(!isPlaying)}
-                  >
-                    {isPlaying ? <Pause className="w-8 h-8" /> : <Play className="w-8 h-8" />}
-                  </Button>
+              <div className="px-5 py-4 bg-[#111827] text-white flex items-center justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-[#94A3B8]">当前课程</p>
+                  <h4 className="mb-0">{course?.title || '课程视频'}</h4>
                 </div>
+                <div className="text-xs text-[#CBD5E1]">
+                  {videoUrl ? '已载入课程视频' : '未找到对应视频，将使用示例播放器'}
+                </div>
+              </div>
+              <div className="aspect-video bg-gradient-to-br from-[#212529] to-[#495057] relative">
+                {videoUrl ? (
+                  <video
+                    ref={videoRef}
+                    src={videoUrl}
+                    className="absolute inset-0 w-full h-full object-contain bg-black"
+                    preload="metadata"
+                  />
+                ) : (
+                  <div className="absolute inset-0 flex items-center justify-center text-white/80 text-lg px-8 text-center">
+                    当前课程暂无上传视频，将使用示例播放器
+                  </div>
+                )}
+                {!isPlaying && (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <Button 
+                      size="lg"
+                      onClick={togglePlayPause}
+                    >
+                      {isPlaying ? <Pause className="w-8 h-8" /> : <Play className="w-8 h-8" />}
+                    </Button>
+                  </div>
+                )}
 
                 {activeKnowledge && (
                   <div className="absolute top-6 left-6 bg-white/95 backdrop-blur rounded-xl shadow-lg p-4 max-w-md border border-[#E9ECEF]">
@@ -180,20 +309,20 @@ export function VideoPlayer({ onNavigate }: VideoPlayerProps) {
                     <input
                       type="range"
                       min={0}
-                      max={duration}
+                      max={Math.max(duration, 1)}
                       value={currentTime}
                       onChange={(e) => handleSeek(Number(e.target.value))}
                       className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                     />
                     <div
                       className="absolute left-0 top-0 h-full bg-[#4C6EF5] rounded-full transition-all"
-                      style={{ width: `${(currentTime / duration) * 100}%` }}
+                      style={{ width: `${duration ? (currentTime / duration) * 100 : 0}%` }}
                     />
                     {knowledgePoints.map((point) => (
                       <button
                         key={point.id}
                         className="absolute top-1/2 -translate-y-1/2 w-2 h-2 bg-[#FFD43B] rounded-full border border-white/60"
-                        style={{ left: `${(point.time / duration) * 100}%` }}
+                        style={{ left: `${duration ? (point.time / duration) * 100 : 0}%` }}
                         title={`跳转到 ${formatTime(point.time)}`}
                         onClick={() => handleSeek(point.time)}
                       />
@@ -202,10 +331,12 @@ export function VideoPlayer({ onNavigate }: VideoPlayerProps) {
                   
                   <div className="flex items-center justify-between text-white">
                     <div className="flex items-center gap-3">
-                      <button onClick={() => setIsPlaying(!isPlaying)}>
+                      <button onClick={togglePlayPause} title={isPlaying ? '暂停' : '播放'}>
                         {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
                       </button>
-                      <Volume2 className="w-5 h-5" />
+                      <button className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition" onClick={handleVolumeToggle} title={isMuted ? '取消静音' : '静音'}>
+                        <Volume2 className="w-5 h-5" />
+                      </button>
                       <span className="text-sm">{formatTime(currentTime)} / {formatTime(duration)}</span>
                     </div>
                     
@@ -233,7 +364,7 @@ export function VideoPlayer({ onNavigate }: VideoPlayerProps) {
                         value={playbackRate}
                         onChange={(e) => setPlaybackRate(Number(e.target.value))}
                       >
-                        {[0.5, 1, 1.25, 1.5, 2].map((rate) => (
+                        {[0.75, 1, 1.25, 1.5, 2].map((rate) => (
                           <option key={rate} value={rate}>{rate.toFixed(2).replace(/\.00$/, '')}x</option>
                         ))}
                       </select>
@@ -241,14 +372,20 @@ export function VideoPlayer({ onNavigate }: VideoPlayerProps) {
                         <Cloud className="w-4 h-4" />
                         <span>{syncStatus}</span>
                       </div>
-                      <Settings className="w-5 h-5" />
-                      <Maximize className="w-5 h-5" />
+                      <button className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition" title="设置">
+                        <Settings className="w-5 h-5" />
+                      </button>
+                      <button className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition" title={isFullscreen ? '退出全屏' : '全屏'} onClick={handleToggleFullscreen}>
+                        <Maximize className="w-5 h-5" />
+                      </button>
                     </div>
                   </div>
 
                   <div className="bg-black/60 rounded-lg px-4 py-2 text-sm flex items-center justify-between">
                     <div className="text-white">
-                      <div>{aiTranslate ? `${subtitleLines[subtitleLang]} · AI: ${subtitleLines.en}` : subtitleLines[subtitleLang]}</div>
+                      <div className="line-clamp-2">
+                        {course?.description || subtitleLines[subtitleLang]}
+                      </div>
                       <div className="text-xs text-[#C1C2C5] mt-1 flex items-center gap-2">
                         <Sparkles className="w-4 h-4" />
                         <span>多语言字幕已开启，AI 实时翻译</span>
@@ -287,10 +424,13 @@ export function VideoPlayer({ onNavigate }: VideoPlayerProps) {
               </div>
               
               <div className="p-6">
-                <h3 className="mb-2">第一章：深度学习简介</h3>
-                <p className="text-[#ADB5BD]">讲师：张教授 · 第 1 课 / 共 20 课</p>
+                <h3 className="mb-2">{course?.curriculum?.[0]?.title || course?.title || '课程简介'}</h3>
+                <p className="text-[#ADB5BD]">
+                  讲师：{course?.instructor || '讲师待定'} · {course?.duration || '时长待定'} · {course?.level || ''}
+                </p>
               </div>
             </Card>
+            </div>
 
             <Card className="p-6">
               <div className="flex items-center justify-between mb-4">

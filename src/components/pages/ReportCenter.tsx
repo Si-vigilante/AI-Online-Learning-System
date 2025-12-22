@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Card } from '../design-system/Card';
 import { Button } from '../design-system/Button';
 import { Loader2, Plus, FileText, Upload, Sparkles, Shield, BookOpen } from 'lucide-react';
@@ -11,6 +11,7 @@ import {
   submitReport
 } from '../../services/reports';
 import { UserProfile } from '../../services/auth';
+import { reportExemplar } from '../../assets/reportExemplar';
 
 interface ReportCenterProps {
   onNavigate: (page: string) => void;
@@ -33,6 +34,41 @@ export function ReportCenter({ onNavigate, currentUser }: ReportCenterProps) {
   });
   const [kpInput, setKpInput] = useState('');
   const fileRef = useRef<HTMLInputElement | null>(null);
+  const exemplarPhrases = useMemo(
+    () =>
+      reportExemplar.rawText
+        .split(/[\n\r，。、“”‘’？?！!；;：:、,.]+/)
+        .map((s) => s.trim())
+        .filter((s) => s.length >= 6),
+    []
+  );
+  const diff = useMemo(() => {
+    const bag = (text: string) =>
+      text
+        .replace(/[^\u4e00-\u9fa5A-Za-z0-9]+/g, ' ')
+        .split(/\s+/)
+        .filter((t) => t.length > 1);
+    const calcSimilarity = (a: string, b: string) => {
+      const setA = new Set(bag(a));
+      const setB = new Set(bag(b));
+      const intersect = Array.from(setA).filter((t) => setB.has(t)).length;
+      const union = setA.size + setB.size - intersect || 1;
+      return Math.round((intersect / union) * 100);
+    };
+    const studentPhrases = rawText
+      .split(/[\n\r，。、“”‘’？?！!；;：:、,.]+/)
+      .map((s) => s.trim())
+      .filter((s) => s.length >= 6);
+    const missing = exemplarPhrases.filter((p) => !studentPhrases.includes(p)).slice(0, 6);
+    const coverage = exemplarPhrases.length
+      ? Math.round(((exemplarPhrases.length - missing.length) / exemplarPhrases.length) * 100)
+      : 0;
+    return {
+      similarity: rawText ? calcSimilarity(rawText, reportExemplar.rawText) : 0,
+      coverage,
+      missing
+    };
+  }, [rawText, exemplarPhrases]);
 
   useEffect(() => {
     loadAssignments();
@@ -291,10 +327,15 @@ export function ReportCenter({ onNavigate, currentUser }: ReportCenterProps) {
                 value={rawText}
                 onChange={(e) => setRawText(e.target.value)}
               />
-              <Button onClick={handleSubmitAndEvaluate} disabled={loading || !selectedId}>
-                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                提交并评估
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={handleSubmitAndEvaluate} disabled={loading || !selectedId}>
+                  {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                  提交并评估
+                </Button>
+                <Button variant="secondary" onClick={() => setRawText(reportExemplar.rawText)}>
+                  一键填充优秀范例
+                </Button>
+              </div>
               {error && <p className="text-sm text-[#C92A2A] bg-[#FFF5F5] p-2 rounded">{error}</p>}
             </div>
             {feedback && (
@@ -338,6 +379,80 @@ export function ReportCenter({ onNavigate, currentUser }: ReportCenterProps) {
                 )}
               </div>
             )}
+          </Card>
+
+          <Card className="p-6">
+            <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mb-4">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <BookOpen className="w-5 h-5 text-[#4C6EF5]" />
+                  <h4 className="mb-0">优秀范例对比</h4>
+                </div>
+                <p className="text-sm text-[#ADB5BD]">学生可查看自身报告与优秀范例的差异，辅助提升写作能力</p>
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                <Button size="sm" variant="secondary" onClick={() => window.open('/assets/学习心得.docx', '_blank')}>
+                  下载 Word 范例
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setRawText(reportExemplar.rawText)}>
+                  填充范例正文
+                </Button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-3">
+                <div className="p-4 bg-[#F8F9FA] rounded-lg border border-[#E9ECEF]">
+                  <p className="text-xs text-[#ADB5BD] mb-1">范例标题</p>
+                  <h5 className="mb-2">{reportExemplar.title}</h5>
+                  <p className="text-sm text-[#495057] whitespace-pre-line line-clamp-6">{reportExemplar.rawText}</p>
+                </div>
+                <div className="p-4 bg-[#E7F5FF] rounded-lg border border-[#4C6EF5]/20">
+                  <p className="text-xs text-[#4C6EF5] mb-1">提示</p>
+                  <p className="text-sm text-[#1C7ED6]">
+                    粘贴或上传你的报告后，这里会实时计算与优秀范例的相似度、覆盖率与缺失要点。
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-4 bg-white rounded-lg border border-[#E9ECEF] space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="p-3 bg-[#F3F0FF] rounded-lg">
+                    <p className="text-xs text-[#845EF7] mb-1">相似度</p>
+                    <div className="text-2xl font-semibold text-[#5F3DC4]">{diff.similarity}%</div>
+                  </div>
+                  <div className="p-3 bg-[#E7F5FF] rounded-lg">
+                    <p className="text-xs text-[#4C6EF5] mb-1">关键段落覆盖</p>
+                    <div className="text-2xl font-semibold text-[#1C7ED6]">{diff.coverage}%</div>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-sm text-[#ADB5BD] mb-2">建议补充的关键表达</p>
+                  {diff.missing.length ? (
+                    <ul className="space-y-2 text-sm list-disc list-inside text-[#212529]">
+                      {diff.missing.map((item, idx) => (
+                        <li key={idx}>{item}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-[#51CF66]">已覆盖范例中的核心段落，保持！</p>
+                  )}
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  <Button size="sm" variant="secondary" onClick={() => window.open('/assets/学习心得.docx', '_blank')}>
+                    下载范例
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={handleSubmitAndEvaluate}
+                    disabled={loading || !rawText.trim() || !selectedId}
+                  >
+                    重新评估我的报告
+                  </Button>
+                </div>
+              </div>
+            </div>
           </Card>
         </div>
 

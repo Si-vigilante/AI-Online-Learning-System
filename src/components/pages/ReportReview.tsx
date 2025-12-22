@@ -1,9 +1,10 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Card } from '../design-system/Card';
 import { Button } from '../design-system/Button';
 import { Tabs } from '../design-system/Tabs';
 import { FileText, Sparkles, TrendingUp, AlertCircle, CheckCircle, Lightbulb, Upload, Download } from 'lucide-react';
 import { UserProfile } from '../../services/auth';
+import { reportExemplar } from '../../assets/reportExemplar';
 
 interface ReportReviewProps {
   onNavigate: (page: string) => void;
@@ -13,7 +14,6 @@ interface ReportReviewProps {
 export function ReportReview({ onNavigate, currentUser }: ReportReviewProps) {
   const [activeTab, setActiveTab] = React.useState('overview');
   const [uploadedReport, setUploadedReport] = useState<{ name: string; size: string; type: string } | null>(null);
-  const [comparedVersion, setComparedVersion] = useState<'mine' | 'best'>('mine');
   const [analysisReady, setAnalysisReady] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   
@@ -50,6 +50,46 @@ export function ReportReview({ onNavigate, currentUser }: ReportReviewProps) {
     ]
   };
   
+  const extractKeyPhrases = (text: string) =>
+    text
+      .split(/[\n\r，。、“”‘’？?！!；;：:、,.]+/)
+      .map((s) => s.trim())
+      .filter((s) => s.length >= 6);
+
+  const calcSimilarity = (a: string, b: string) => {
+    const bag = (text: string) =>
+      text
+        .replace(/[^\u4e00-\u9fa5A-Za-z0-9]+/g, ' ')
+        .split(/\s+/)
+        .filter((t) => t.length > 1);
+    const setA = new Set(bag(a));
+    const setB = new Set(bag(b));
+    const intersect = Array.from(setA).filter((t) => setB.has(t)).length;
+    const union = setA.size + setB.size - intersect || 1;
+    return Math.round((intersect / union) * 100);
+  };
+
+  const exemplarPhrases = useMemo(() => extractKeyPhrases(reportExemplar.rawText), []);
+  const [myReportText, setMyReportText] = useState('');
+  const [diffResult, setDiffResult] = useState(() => ({
+    similarity: 0,
+    coverage: 0,
+    missing: exemplarPhrases.slice(0, 4)
+  }));
+
+  useEffect(() => {
+    const studentPhrases = extractKeyPhrases(myReportText || '');
+    const missing = exemplarPhrases.filter((p) => !studentPhrases.includes(p)).slice(0, 6);
+    const coverage = exemplarPhrases.length
+      ? Math.round(((exemplarPhrases.length - missing.length) / exemplarPhrases.length) * 100)
+      : 0;
+    setDiffResult({
+      similarity: calcSimilarity(myReportText || '', reportExemplar.rawText),
+      coverage,
+      missing
+    });
+  }, [myReportText, exemplarPhrases]);
+  
   const tabs = [
     { key: 'overview', label: '总体评价', icon: <FileText className="w-4 h-4" /> },
     { key: 'detailed', label: '详细分析', icon: <Sparkles className="w-4 h-4" /> },
@@ -66,25 +106,6 @@ export function ReportReview({ onNavigate, currentUser }: ReportReviewProps) {
     const size = `${(file.size / 1024 / 1024).toFixed(1)} MB`;
     setUploadedReport({ name: file.name, size, type: file.type || '未知' });
     setAnalysisReady(true);
-  };
-
-  const handleDownloadExample = () => {
-    const blob = new Blob(
-      [
-        '# 深度学习期中报告优秀示例\n\n',
-        '1. 引言\n- 背景与研究意义\n- 主要贡献\n\n',
-        '2. 方法\n- 网络结构与损失函数\n- 训练策略\n\n',
-        '3. 实验\n- 数据集与指标\n- 结果分析\n\n',
-        '4. 结论与未来工作\n'
-      ],
-      { type: 'text/markdown' }
-    );
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = '优秀示例.md';
-    a.click();
-    URL.revokeObjectURL(url);
   };
   
   return (
@@ -262,45 +283,80 @@ export function ReportReview({ onNavigate, currentUser }: ReportReviewProps) {
                 {activeTab === 'examples' && (
                   <div className="space-y-6">
                     <div className="p-6 bg-[#F8F9FA] rounded-lg">
-                      <h4 className="mb-4">优秀示例对比</h4>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div>
-                          <div className="flex items-center justify-between mb-2">
-                            <p className="text-sm text-[#ADB5BD]">您的版本</p>
-                            <Button size="xs" variant={comparedVersion === 'mine' ? 'primary' : 'ghost'} onClick={() => setComparedVersion('mine')}>
-                              查看
-                            </Button>
-                          </div>
-                          <div className="p-4 bg-white rounded-lg border border-[#E9ECEF]">
-                            <p className="text-sm">深度学习是机器学习的一个重要分支，它通过构建多层神经网络来学习数据的表示...</p>
-                          </div>
+                      <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+                        <div className="space-y-2">
+                          <p className="text-xs text-[#ADB5BD]">优秀范例（来自 assets/学习心得.docx）</p>
+                          <h4 className="mb-1">{reportExemplar.title}</h4>
+                          <p className="text-sm text-[#495057] whitespace-pre-line">
+                            {reportExemplar.rawText.split('\n').slice(0, 3).join('\n')}
+                          </p>
                         </div>
-                        <div>
-                          <div className="flex items-center justify-between mb-2">
-                            <p className="text-sm text-[#ADB5BD]">优秀示例</p>
-                            <Button size="xs" variant={comparedVersion === 'best' ? 'primary' : 'ghost'} onClick={() => setComparedVersion('best')}>
-                              查看
-                            </Button>
-                          </div>
-                          <div className="p-4 bg-[#E7F5FF] rounded-lg border border-[#4C6EF5]/20">
-                            <p className="text-sm">深度学习作为机器学习的核心分支，通过多层神经网络架构实现数据的层次化表示学习，在计算机视觉、自然语言处理等领域取得了突破性进展...</p>
-                          </div>
+                        <div className="flex gap-2 flex-shrink-0">
+                          <Button size="sm" variant="secondary" onClick={() => window.open('/assets/学习心得.docx', '_blank')}>
+                            <Download className="w-4 h-4" />
+                            下载 Word 范例
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => setMyReportText(reportExemplar.rawText)}>
+                            一键填充范例
+                          </Button>
                         </div>
                       </div>
-                      <div className="mt-4 p-4 bg-[#F3F0FF] rounded-lg">
-                        <p className="text-sm text-[#845EF7]">
-                          <strong>差异分析：</strong>优秀示例更加具体地说明了应用领域，语言更加专业和精准。
-                        </p>
-                        <div className="mt-3 flex gap-3">
-                          <Button size="sm" variant="secondary" onClick={handleDownloadExample}>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <Card className="p-6">
+                        <div className="flex items-center justify-between mb-3">
+                          <h5 className="mb-0">粘贴我的报告正文</h5>
+                          <Button size="xs" variant="ghost" onClick={() => setMyReportText('')}>
+                            清空
+                          </Button>
+                        </div>
+                        <textarea
+                          className="w-full min-h-[220px] border-2 border-[#E9ECEF] rounded-lg px-3 py-2 text-sm"
+                          placeholder="在此粘贴或输入你的报告内容，系统将与优秀范例进行段落层面的差异对比"
+                          value={myReportText}
+                          onChange={(e) => setMyReportText(e.target.value)}
+                        />
+                        <p className="mt-2 text-xs text-[#ADB5BD]">提示：内容仅本地使用，不会上传到服务器。</p>
+                      </Card>
+
+                      <Card className="p-6">
+                        <div className="flex items-center gap-2 mb-3">
+                          <TrendingUp className="w-4 h-4 text-[#4C6EF5]" />
+                          <h5 className="mb-0">与优秀范例的差异</h5>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3 mb-4">
+                          <div className="p-3 bg-[#E7F5FF] rounded-lg">
+                            <p className="text-xs text-[#4C6EF5] mb-1">相似度</p>
+                            <div className="text-2xl font-semibold text-[#1C7ED6]">{diffResult.similarity}%</div>
+                          </div>
+                          <div className="p-3 bg-[#F3F0FF] rounded-lg">
+                            <p className="text-xs text-[#845EF7] mb-1">关键段落覆盖</p>
+                            <div className="text-2xl font-semibold text-[#5F3DC4]">{diffResult.coverage}%</div>
+                          </div>
+                        </div>
+                        <div className="mb-4">
+                          <p className="text-sm text-[#ADB5BD] mb-2">建议补充的关键表达</p>
+                          {diffResult.missing.length ? (
+                            <ul className="space-y-2 text-sm list-disc list-inside text-[#212529]">
+                              {diffResult.missing.map((item, idx) => (
+                                <li key={idx}>{item}</li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="text-sm text-[#51CF66]">已覆盖范例中的核心段落，保持！</p>
+                          )}
+                        </div>
+                        <div className="flex gap-3">
+                          <Button size="sm" variant="secondary" onClick={() => window.open('/assets/学习心得.docx', '_blank')}>
                             <Download className="w-4 h-4" />
-                            下载优秀示例
+                            下载范例全文
                           </Button>
                           <Button size="sm" variant="ghost" onClick={() => onNavigate('report-upload')}>
-                            上传新版本
+                            上传/提交报告
                           </Button>
                         </div>
-                      </div>
+                      </Card>
                     </div>
                   </div>
                 )}
