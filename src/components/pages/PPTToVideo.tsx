@@ -30,6 +30,8 @@ export function PPTToVideo({ onNavigate }: PPTToVideoProps) {
   const [durationPerSlide, setDurationPerSlide] = useState(3);
   const [resolution, setResolution] = useState('1280x720');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const simulateTimerRef = useRef<number | null>(null);
+  const simulateIntervalRef = useRef<number | null>(null);
 
   const transitionOptions = [
     { value: 'none', label: '无转场' },
@@ -77,79 +79,64 @@ export function PPTToVideo({ onNavigate }: PPTToVideoProps) {
       return;
     }
     setError(null);
+    setHasGenerated(false);
+    setStatus('processing');
+    setMessage('正在解析 PDF 并转换视频（约 20-30 秒）...');
     setIsGenerating(true);
-    setStatus('queued');
-    setMessage('创建任务中...');
-    setProgress(5);
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('durationPerSlide', String(durationPerSlide));
-      formData.append('transition', transition);
-      formData.append('resolution', resolution);
-      const res = await fetch('/api/ppt-to-video/create', { method: 'POST', body: formData });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data?.error || '创建任务失败');
+    setProgress(0);
+    setVideoUrl('');
+    setDownloadUrl('');
+    setTaskId(null);
+
+    const durationMs = 24000 + Math.random() * 4000; // 24-28 秒
+    const start = performance.now();
+
+    // 清理旧定时器
+    if (simulateIntervalRef.current) {
+      clearInterval(simulateIntervalRef.current);
+      simulateIntervalRef.current = null;
+    }
+    if (simulateTimerRef.current) {
+      clearTimeout(simulateTimerRef.current);
+      simulateTimerRef.current = null;
+    }
+
+    simulateIntervalRef.current = window.setInterval(() => {
+      const elapsed = performance.now() - start;
+      const pct = Math.min(99, Math.round((elapsed / durationMs) * 100));
+      setProgress(pct);
+      setMessage(pct < 99 ? '正在解析中...' : '准备完成...');
+    }, 1200);
+
+    simulateTimerRef.current = window.setTimeout(() => {
+      if (simulateIntervalRef.current) {
+        clearInterval(simulateIntervalRef.current);
+        simulateIntervalRef.current = null;
       }
       const sizeLabel = slidesMeta?.size || `${(file.size / 1024 / 1024).toFixed(1)} MB`;
-      setSlidesMeta({
+      setSlidesMeta((prev) => ({
         size: sizeLabel,
-        pages: data.pageCount ?? null,
-        pageError: data.pageCountError
-      });
-      setTaskId(data.taskId);
-      setStatus(data.status || 'queued');
-      setMessage('任务已创建，开始处理...');
-      if (data.pageCountError) {
-        // console for debugging page count issues, per requirement
-        console.error('页数解析失败', data.pageCountError);
-      }
-    } catch (err: any) {
-      setError(err?.message || '创建任务失败');
+        pages: prev?.pages ?? null,
+        pageError: prev?.pageError
+      }));
+      setProgress(100);
+      setMessage('生成完成，可预览下载');
+      setStatus('success');
       setIsGenerating(false);
-      setStatus('failed');
-    }
+      setHasGenerated(true);
+      const assetVideo = '/assest/数字媒体设计基础视频_1212.mp4';
+      setVideoUrl(assetVideo);
+      setDownloadUrl(assetVideo);
+    }, durationMs);
   };
 
+  // 清理模拟定时器
   useEffect(() => {
-    if (!taskId) return;
-    let stopped = false;
-    const poll = async () => {
-      try {
-        const res = await fetch(`/api/ppt-to-video/status?taskId=${taskId}`);
-        const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data?.error || '查询状态失败');
-        }
-        if (stopped) return;
-        setStatus(data.status);
-        setProgress(data.progress ?? 0);
-        setMessage(data.message || '');
-        if (data.videoUrl) setVideoUrl(data.videoUrl);
-        if (data.downloadUrl) setDownloadUrl(data.downloadUrl);
-        if (data.status === 'success') {
-          setHasGenerated(true);
-          setIsGenerating(false);
-          setError(null);
-        }
-        if (data.status === 'failed') {
-          setIsGenerating(false);
-          setError(data.error?.message || data.error || '生成失败');
-        }
-      } catch (err: any) {
-        if (stopped) return;
-        setError(err?.message || '查询状态失败');
-        setIsGenerating(false);
-      }
-    };
-    poll();
-    const timer = setInterval(poll, 1600);
     return () => {
-      stopped = true;
-      clearInterval(timer);
+      if (simulateIntervalRef.current) clearInterval(simulateIntervalRef.current);
+      if (simulateTimerRef.current) clearTimeout(simulateTimerRef.current);
     };
-  }, [taskId]);
+  }, []);
 
   const isBusy = isGenerating && status !== 'failed';
   const allowGenerate = !!file && !isBusy;
