@@ -15,6 +15,7 @@ const { Server } = require('socket.io');
 const { LowSync, JSONFileSync } = require('lowdb');
 const path = require('path');
 const { OpenAI } = require('openai');
+const crypto = require('crypto');
 const PptxGenJS = require('pptxgenjs');
 const dayjs = require('dayjs');
 const { getMockCourseContent } = require('./mocks/courseContent');
@@ -289,6 +290,44 @@ const textWordCount = (txt = '') => {
   return txt.trim().split(/\s+/).filter(Boolean).length;
 };
 
+const normalizeText = (s = '') => `${s}`.replace(/\s+/g, ' ').trim();
+
+const computeQuestionHash = (courseId, q = {}) => {
+  const options = Array.isArray(q.options)
+    ? q.options.map((opt) => ({
+        key: opt.key || '',
+        text: normalizeText(opt.text || opt)
+      }))
+    : [];
+  const base = {
+    courseId,
+    type: q.type,
+    stem: normalizeText(q.stem || ''),
+    options,
+    answer: q.answer,
+    referenceAnswer: q.referenceAnswer,
+    difficulty: q.difficulty || '',
+    subject: q.subject || ''
+  };
+  return crypto.createHash('sha256').update(JSON.stringify(base)).digest('hex');
+};
+
+const computePaperHash = (courseId, questions = []) => {
+  const hashes = questions.map((q) => q.hash || computeQuestionHash(courseId, q));
+  const joined = hashes.sort().join('|');
+  return crypto.createHash('sha256').update(joined).digest('hex');
+};
+
+const ensurePaperHashes = (paper) => {
+  const courseId = paper.courseId || 'default';
+  const questions = (paper.questions || []).map((q) => ({
+    ...q,
+    hash: q.hash || computeQuestionHash(courseId, q)
+  }));
+  const hash = paper.hash || computePaperHash(courseId, questions);
+  return { ...paper, courseId, questions, hash };
+};
+
 const safeString = (v) => (typeof v === 'string' ? v : '');
 
 const limitText = (txt, maxLen = 20000) => {
@@ -339,6 +378,29 @@ const pickFromBank = (plan, knowledgeScope = [], difficulty) => {
     }
   });
   return { picked, remaining };
+};
+
+const detectSubject = (knowledgeScope = []) => {
+  const joined = knowledgeScope.join(' ').toLowerCase();
+  const checks = [
+    { key: 'english', match: /(english|语法|词汇|阅读|翻译|雅思|托福|英语)/ },
+    { key: 'design', match: /(设计|design|视觉|排版|配色|格.*塔|层级|对比|字体)/ },
+    { key: 'math', match: /(数学|代数|微积分|几何|矩阵|特征值|概率|统计|线性代数|方程)/ },
+    { key: 'cs', match: /(计算机|算法|编程|代码|网络|操作系统|tcp|数据库|ai|机器学习|深度学习)/ }
+  ];
+  const found = checks.find((c) => c.match.test(joined));
+  switch (found?.key) {
+    case 'english':
+      return '英语';
+    case 'design':
+      return '设计';
+    case 'math':
+      return '数学';
+    case 'cs':
+      return '计算机';
+    default:
+      return '综合';
+  }
 };
 
 const defaultScoreByType = {
@@ -399,12 +461,13 @@ const validateQuestions = (qs = []) => {
   return valid;
 };
 
-const buildExamPrompt = ({ courseContext, knowledgeScope, difficulty, plan }) => {
+const buildUniversalExamPrompt = ({ subject, knowledgeScope, difficulty, plan }) => {
   const planEntries = Object.entries(plan).filter(([, v]) => v > 0);
   const planText = planEntries.map(([k, v]) => `${k}:${v}题`).join('，');
   const schemaHint = {
     questions: [
       {
+        subject: '学科，例如 英语/设计/数学/计算机/综合',
         type: 'single | multiple | tf | short | essay',
         stem: '题干',
         knowledgePoints: ['知识点1', '知识点2'],
@@ -416,17 +479,17 @@ const buildExamPrompt = ({ courseContext, knowledgeScope, difficulty, plan }) =>
       }
     ]
   };
-  const sys = `你是严格的教育测验出题助手。必须且只能输出一个合法 JSON 对象。不要输出 Markdown、不要代码块、不要解释或注释。如果无法生成完整 JSON，请输出 {"error":"generation_failed"}。题目必须可用于自动判分，覆盖给定知识点与课程内容。客观题必须给正确答案与解析；主观题给参考答案与评分要点。`;
+  const sys = `你是通用学科的测验出题助手，必须严格围绕指定学科与知识点出题。返回值必须且只能是合法 JSON 对象，不能有 Markdown、代码块或额外解释。如无法生成，返回 {"error":"generation_failed"}。严禁出现与学科无关的编程/算法/系统内容。`;
   const user = `
-课程内容片段（可截断）：${courseContext}
+学科（subject）：${subject}
 知识点范围：${knowledgeScope.join('，') || '未指定'}
 目标难度：${difficulty}
 缺口题量计划：${planText || '无'}
 要求：
-- 题目紧扣课程内容与知识点，不要超纲。
-- 单/多选选项 4~6 个，禁止“以上都对”类模糊选项。
-- 每题提供解析 explanation。
-- 主观题需 referenceAnswer 与 gradingRubric（小项加和=score）。
+- 题目严格围绕上述知识点与学科，不要跨领域。
+- 客观题（single/multiple/tf）提供 4~6 个选项与正确答案，附解析 explanation。
+- 主观题（short/essay）提供参考答案 referenceAnswer 与 gradingRubric（小项加和=score）。
+- 输出字段必须包含 subject、type、stem、knowledgePoints、difficulty、score、options（客观题）、answer、explanation/referenceAnswer/gradingRubric。
 输出 JSON（不要 Markdown 代码块），示例结构：${JSON.stringify(schemaHint)}
 `;
   return [
@@ -1289,6 +1352,7 @@ app.post('/api/exams/generate', async (req, res) => {
 
   try {
     const courseContext = getMockCourseContent(courseId);
+    const subject = detectSubject(knowledgeScope);
     const { picked, remaining } = pickFromBank(questionPlan, knowledgeScope, difficulty);
     const needLLM = Object.values(remaining).some((v) => v > 0);
     let llmQuestions = [];
@@ -1296,25 +1360,29 @@ app.post('/api/exams/generate', async (req, res) => {
     let modelMeta = {};
 
     if (needLLM) {
-      const messages = buildExamPrompt({ courseContext, knowledgeScope, difficulty, plan: remaining });
+      const messages = buildUniversalExamPrompt({ subject, knowledgeScope, difficulty, plan: remaining });
       const resp = await callDeepSeekExam({ messages, retry: 0 });
       retries = resp?.meta?.retries || 0;
       modelMeta = { model: MODELSCOPE_MODEL, tokens: resp?.meta?.usage?.total_tokens, retries };
       const rawQs = Array.isArray(resp?.data?.questions) ? resp.data.questions : [];
-      llmQuestions = validateQuestions(rawQs);
+      llmQuestions = validateQuestions(rawQs).map((q) => ({ ...q, subject }));
     }
 
-    const allQuestions = [...picked, ...llmQuestions].map((q) => ({
-      ...q,
-      id: q.id || genId(),
-      score: Number(q.score) || defaultScoreByType[q.type] || 5,
-      knowledgePoints: Array.isArray(q.knowledgePoints) ? q.knowledgePoints : []
-    }));
+    const allQuestions = [...picked, ...llmQuestions].map((q) => {
+      const withMeta = {
+        ...q,
+        subject: q.subject || subject,
+        id: q.id || genId(),
+        score: Number(q.score) || defaultScoreByType[q.type] || 5,
+        knowledgePoints: Array.isArray(q.knowledgePoints) ? q.knowledgePoints : []
+      };
+      return { ...withMeta, hash: computeQuestionHash(courseId, withMeta) };
+    });
 
     const totalScore = allQuestions.reduce((sum, q) => sum + (Number(q.score) || 0), 0);
     const source =
       picked.length && llmQuestions.length ? 'mixed' : picked.length ? 'bank_only' : 'llm_only';
-    const paper = {
+    const paper = ensurePaperHashes({
       id: genId(),
       title: body.title || `AI测验-${dayjs().format('MMDD HH:mm')}`,
       courseId,
@@ -1322,16 +1390,22 @@ app.post('/api/exams/generate', async (req, res) => {
       createdAt: new Date().toISOString(),
       difficulty,
       knowledgeScope,
+      subject,
       durationMinutes,
       totalScore,
       questions: allQuestions,
       meta: { ...modelMeta, source }
-    };
+    });
     db.read();
     db.data.examPapers = db.data.examPapers || [];
-    db.data.examPapers.unshift(paper);
-    db.write();
-    return res.json({ paper });
+    const existing = (db.data.examPapers || []).find(
+      (p) => (p.hash || computePaperHash(p.courseId || courseId, p.questions || [])) === paper.hash
+    );
+    if (!existing) {
+      db.data.examPapers.unshift(paper);
+      db.write();
+    }
+    return res.json({ paper: existing || paper, existing: Boolean(existing) });
   } catch (err) {
     console.error('generate exam failed', err);
     return res.status(500).json({ error: { code: 'GEN_FAIL', message: err?.message || '生成失败' } });
@@ -1350,11 +1424,19 @@ app.post('/api/exams', (req, res) => {
   if (!paper || !paper.id) {
     return res.status(400).json({ error: { code: 'INVALID_PAPER', message: '缺少试卷数据' } });
   }
+  const withHashes = ensurePaperHashes(paper);
+  const courseId = withHashes.courseId || 'default';
+  const hash = withHashes.hash;
   db.read();
   db.data.examPapers = db.data.examPapers || [];
-  db.data.examPapers.unshift(paper);
-  db.write();
-  res.json({ ok: true });
+  const exists = db.data.examPapers.find(
+    (p) => (p.hash || computePaperHash(p.courseId || courseId, p.questions || [])) === hash
+  );
+  if (!exists) {
+    db.data.examPapers.unshift(withHashes);
+    db.write();
+  }
+  res.json({ ok: true, existing: Boolean(exists), paper: exists || withHashes });
 });
 
 app.post('/api/grading/grade', async (req, res) => {

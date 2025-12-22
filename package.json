@@ -59,6 +59,7 @@
             "sonner": "^2.0.3",
             "tailwind-merge": "*",
             "tailwindcss": "*",
+            "undici": "^6.22.0",
             "vaul": "^1.1.2"
       },
       "devDependencies": {
@@ -70,9 +71,9 @@
             "vite": "6.3.5"
       },
       "scripts": {
-      "dev": "concurrently \"npm run dev:client\" \"npm run dev:server\"",
-      "dev:client": "vite",
-      "dev:server": "set NODE_OPTIONS=--trace-uncaught --trace-warnings&& nodemon server/index.js --ignore server/db.json",
+            "dev": "concurrently \"npm run dev:client\" \"npm run dev:server\"",
+            "dev:client": "vite",
+            "dev:server": "set NODE_OPTIONS=--trace-uncaught --trace-warnings&& nodemon server/index.js --ignore server/db.json",
             "build": "vite build",
             "start": "vite",
             "preview": "vite preview"

@@ -3,7 +3,7 @@ import { Card } from '../design-system/Card';
 import { Button } from '../design-system/Button';
 import { FileText, Sparkles, Clock, Award, Plus, Play, Shield, Eye, Camera, Timer, Shuffle, BookOpenCheck, Loader2 } from 'lucide-react';
 import { UserProfile } from '../../services/auth';
-import { generateExamPaper, listExamPapersLocal, saveExamPaperLocal } from '../../services/exams';
+import { generateExamPaper, listExamPapersLocal, saveExamPaperLocal, saveExamPaperRemote } from '../../services/exams';
 import { gradeSubmission, listGradingLocal, parseSubmission, saveGradingLocal } from '../../services/grading';
 import type { ExamPaper, Question } from '../../types/exam';
 import type { GradingResult } from '../../types/grading';
@@ -45,6 +45,7 @@ export function TestCenter({ onNavigate, currentUser }: TestCenterProps) {
   const [gradingResult, setGradingResult] = useState<GradingResult | null>(null);
   const [gradingHistory, setGradingHistory] = useState<GradingResult[]>([]);
   const [saveMessage, setSaveMessage] = useState('');
+  const [saving, setSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -78,6 +79,7 @@ export function TestCenter({ onNavigate, currentUser }: TestCenterProps) {
   const handleGenerate = async () => {
     setError(null);
     setGenerating(true);
+    setSaving(false);
     try {
       const typeMap: Record<string, keyof typeof questionPlan> = {
         单选: 'single',
@@ -101,8 +103,6 @@ export function TestCenter({ onNavigate, currentUser }: TestCenterProps) {
       });
       setGeneratedPaper(paper);
       setShowPreview(true);
-      saveExamPaperLocal(paper);
-      setAvailablePapers(listExamPapersLocal(courseId));
     } catch (err: any) {
       setError(err?.message || '生成失败');
     } finally {
@@ -145,12 +145,22 @@ export function TestCenter({ onNavigate, currentUser }: TestCenterProps) {
     }
   };
 
-  const handleSavePaper = () => {
-    if (!generatedPaper) return;
-    saveExamPaperLocal(generatedPaper);
-    setAvailablePapers(listExamPapersLocal(courseId));
-    setSaveMessage('已保存到本地试卷列表');
-    setTimeout(() => setSaveMessage(''), 1800);
+  const handleSavePaper = async () => {
+    if (!generatedPaper || saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const existsLocal = listExamPapersLocal(courseId).some((p) => (p as any).hash === (generatedPaper as any).hash || p.id === generatedPaper.id);
+      const resp = await saveExamPaperRemote(generatedPaper);
+      saveExamPaperLocal(generatedPaper);
+      setAvailablePapers(listExamPapersLocal(courseId));
+      setSaveMessage(resp?.existing || existsLocal ? '已存在，无需重复保存' : '已保存到试卷列表');
+    } catch (err: any) {
+      setError(err?.message || '保存失败');
+    } finally {
+      setSaving(false);
+      setTimeout(() => setSaveMessage(''), 1800);
+    }
   };
 
   const handleFilePick = () => {
@@ -460,9 +470,10 @@ export function TestCenter({ onNavigate, currentUser }: TestCenterProps) {
                     </p>
                   </div>
                   <div className="flex gap-2">
-                    <Button size="sm" variant="secondary" onClick={handleSavePaper}>
-                      保存试卷
-                    </Button>
+                      <Button size="sm" variant="secondary" onClick={handleSavePaper} disabled={!generatedPaper || saving}>
+                        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                        {saving ? '保存中...' : '保存试卷'}
+                      </Button>
                     <Button size="sm" variant="ghost" onClick={handleGenerate} disabled={generating}>
                       重新生成
                     </Button>
