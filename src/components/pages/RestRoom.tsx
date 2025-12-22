@@ -1,17 +1,18 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Music2,
   Play,
   Pause,
   Volume2,
   VolumeX,
-  ChevronRight,
   Lock,
   Unlock,
   Radio,
   Users,
   Timer,
-  TimerReset
+  TimerReset,
+  ChevronRight
 } from 'lucide-react';
 import { Button } from '../design-system/Button';
 
@@ -40,23 +41,20 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
   const [hasInteracted, setHasInteracted] = useState(false);
   const [volume, setVolume] = useState(() => {
     const stored = localStorage.getItem('rest-room-volume');
-    const num = stored ? Number(stored) : 5;
-    return Number.isFinite(num) ? Math.min(Math.max(num, 0), 100) : 5;
+    const num = stored ? Number(stored) : 1;
+    return Number.isFinite(num) ? Math.min(Math.max(num, 0), 100) : 1;
   });
   const [activeAudioKey, setActiveAudioKey] = useState<'a' | 'b'>('a');
   const audioARef = useRef<HTMLAudioElement>(new Audio(SCENES[0].audio));
   const audioBRef = useRef<HTMLAudioElement>(new Audio());
   const [playHint, setPlayHint] = useState('点击播放开始音乐');
 
-  const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
-  const [leftPinned, setLeftPinned] = useState(false);
   const [rightPinned, setRightPinned] = useState(false);
   const [lastActive, setLastActive] = useState(Date.now());
   const [isDraggingVolume, setIsDraggingVolume] = useState(false);
   const [isTypingRoom, setIsTypingRoom] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
-
   const [showScenePicker, setShowScenePicker] = useState(true);
 
   const [roomId, setRoomId] = useState('');
@@ -65,8 +63,16 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
   const [timerSeconds, setTimerSeconds] = useState(0);
   const [timerRunning, setTimerRunning] = useState(false);
 
+  const overlayRoot = typeof document !== 'undefined' ? document.getElementById('overlay-root') || document.body : null;
   const activeAudio = activeAudioKey === 'a' ? audioARef.current : audioBRef.current;
   const standbyAudio = activeAudioKey === 'a' ? audioBRef.current : audioARef.current;
+
+  const logDebug = (...args: any[]) => {
+    if (import.meta.env.DEV) {
+      // eslint-disable-next-line no-console
+      console.debug('[RestRoom]', ...args);
+    }
+  };
 
   useEffect(() => {
     const resizeHandler = () => setIsMobile(window.innerWidth < 1024);
@@ -78,7 +84,6 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        setLeftCollapsed(true);
         setRightCollapsed(true);
       }
     };
@@ -103,12 +108,11 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
     const id = setInterval(() => {
       const now = Date.now();
       if (now - lastActive > 15000 && !isDraggingVolume && !isTypingRoom) {
-        if (!leftPinned) setLeftCollapsed(true);
         if (!rightPinned) setRightCollapsed(true);
       }
     }, 1000);
     return () => clearInterval(id);
-  }, [lastActive, leftPinned, rightPinned, isDraggingVolume, isTypingRoom]);
+  }, [lastActive, rightPinned, isDraggingVolume, isTypingRoom]);
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -127,6 +131,7 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
       a.preload = 'auto';
       a.volume = vol;
     });
+    logDebug('volume-init', { volume: vol, src: activeAudio.src });
     const tryAutoPlay = async () => {
       activeAudio.src = SCENES[sceneIndex].audio;
       activeAudio.loop = true;
@@ -136,6 +141,7 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
         setIsPlaying(true);
         setHasInteracted(true);
         setPlayHint('');
+        logDebug('autoplay-success', { volume: vol, src: activeAudio.src });
       } catch (err) {
         console.warn('自动播放被拦截，等待用户点击', err);
         setIsPlaying(false);
@@ -154,7 +160,8 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
       a.preload = 'auto';
       a.volume = vol;
     });
-  }, [volume]);
+    logDebug('volume-change', { volume: vol, src: activeAudio.src, paused: activeAudio.paused });
+  }, [volume, activeAudio]);
 
   const markActive = () => setLastActive(Date.now());
 
@@ -170,6 +177,7 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
 
   const crossfadeToScene = async (nextIndex: number) => {
     if (nextIndex === sceneIndex) return;
+    logDebug('scene-switch', { nextIndex, current: sceneIndex });
     setSceneIndex(nextIndex);
     setShowScenePicker(false);
     setBgFading(true);
@@ -205,6 +213,7 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
         } else {
           activeAudio.pause();
           setActiveAudioKey((k) => (k === 'a' ? 'b' : 'a'));
+          logDebug('scene-switch-complete', { active: standbyAudio.src, volume: targetVol, paused: activeAudio.paused });
         }
       };
       requestAnimationFrame(tick);
@@ -220,6 +229,7 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
     if (isPlaying) {
       activeAudio.pause();
       standbyAudio.pause();
+      logDebug('pause', { src: activeAudio.src, volume: activeAudio.volume });
       setIsPlaying(false);
       return;
     }
@@ -230,6 +240,7 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
     applyVolume(activeAudio, volume / 100);
     try {
       await activeAudio.play();
+      logDebug('play', { src: activeAudio.src, volume: activeAudio.volume, paused: activeAudio.paused });
       setIsPlaying(true);
       setPlayHint('');
     } catch (err) {
@@ -237,15 +248,6 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
       setPlayHint('点击播放开始音乐');
       setIsPlaying(false);
     }
-  };
-
-  const toggleLeft = () => {
-    setLeftCollapsed((v) => !v);
-    markActive();
-  };
-  const toggleRight = () => {
-    setRightCollapsed((v) => !v);
-    markActive();
   };
 
   const formatTimer = (sec: number) => {
@@ -262,6 +264,18 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
     setTimerSeconds(minutes * 60);
     setTimerRunning(true);
     markActive();
+  };
+
+  const handlePrevScene = () => {
+    markActive();
+    const next = (sceneIndex - 1 + SCENES.length) % SCENES.length;
+    crossfadeToScene(next);
+  };
+
+  const handleNextScene = () => {
+    markActive();
+    const next = (sceneIndex + 1) % SCENES.length;
+    crossfadeToScene(next);
   };
 
   const sceneThumbs = useMemo(
@@ -287,117 +301,58 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
     [sceneIndex]
   );
 
-  return (
-    <div
-      className="relative overflow-hidden text-white"
-      style={{ minHeight: 'calc(100vh - 88px)' }}
-      onMouseMove={markActive}
-      onTouchStart={markActive}
-    >
-      {/* Background layers */}
+  const controls =
+    overlayRoot &&
+    createPortal(
       <div
-        className="absolute inset-0 rest-kenburns"
-        style={{
-          backgroundImage: `url(${currentBg})`,
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-          backgroundRepeat: 'no-repeat'
-        }}
-      />
-      {nextBg && (
-        <div
-          className={`absolute inset-0 rest-kenburns transition-opacity duration-700 ${bgFading ? 'opacity-100' : 'opacity-0'}`}
-          style={{
-            backgroundImage: `url(${nextBg})`,
-            backgroundSize: 'cover',
-            backgroundPosition: 'center',
-            backgroundRepeat: 'no-repeat'
-          }}
-        />
-      )}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/35 via-black/10 to-black/20 mix-blend-normal rest-glow" />
-
-      {/* Content overlay */}
-      <div className="relative z-10 min-h-screen flex items-center justify-center">
-        <div className="text-center px-6">
-          <p className="uppercase tracking-[0.4em] text-sm text-white/70 mb-3">Rest · Focus</p>
-          <h1 className="text-4xl md:text-5xl font-semibold drop-shadow-lg mb-3">冥想自习室</h1>
-          <p className="text-base text-white/80">在静谧的呼吸中保持专注，背景音乐与场景随心切换</p>
-          {playHint && <p className="text-xs text-white/70 mt-2">{playHint}</p>}
-        </div>
-      </div>
-
-      {/* Left: meditation control */}
-      <div
-        className="fixed bottom-6 left-6 z-40"
-        onMouseEnter={() => {
-          if (!isMobile) setLeftCollapsed(false);
-          markActive();
-        }}
-        onMouseLeave={() => {
-          if (!leftPinned && !isMobile) setLeftCollapsed(true);
-        }}
+        data-testid="rest-controls"
+        className="fixed inset-0 pointer-events-none"
+        style={{ zIndex: 2147483647 }}
       >
-        {leftCollapsed ? (
-          <div className="flex flex-col gap-2">
-            <button
-              className="w-14 h-14 rounded-full bg-white/80 text-[#4C6EF5] border border-white/60 shadow-lg flex items-center justify-center hover:bg-white transition-all"
-              onClick={handlePlayPause}
-              title={isPlaying ? '暂停' : '播放'}
-            >
-              {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
-            </button>
-            <button
-              className="px-3 py-2 rounded-full bg-white/18 backdrop-blur-md border border-white/40 text-sm hover:bg-white/28 transition"
-              onClick={() => {
-                const next = (sceneIndex + 1) % SCENES.length;
-                crossfadeToScene(next);
-              }}
-            >
-              切换场景
-            </button>
-            <button
-              className="px-3 py-2 rounded-full bg-white/15 backdrop-blur-md border border-white/30 text-sm hover:bg-white/25 transition"
-              onClick={toggleLeft}
-            >
-              展开控制
-            </button>
+        <div className="fixed bottom-10 left-1/2 -translate-x-1/2 pointer-events-auto">
+          <div className="rest-glass px-4 py-3 rounded-full flex items-center gap-3 shadow-lg bg-black/70 text-white">
+            <Button size="sm" variant="secondary" onClick={handlePrevScene}>
+              上一幕
+            </Button>
+            <div className="text-sm min-w-[160px] text-center">
+              {SCENES[sceneIndex].name} · 音乐与背景同步切换
+            </div>
+            <Button size="sm" variant="secondary" onClick={handleNextScene}>
+              下一幕
+            </Button>
           </div>
-        ) : (
-          <div className="rest-glass w-[320px] p-4">
+        </div>
+
+        <div className="fixed bottom-10 left-6 pointer-events-auto">
+          <div className="rest-glass w-[320px] p-4 shadow-2xl bg-black/70 text-white">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <Music2 className="w-4 h-4" />
                 <span className="text-sm">冥想 · {SCENES[sceneIndex].name}</span>
               </div>
-              <button
-                className="p-2 rounded-lg bg-white/10 hover:bg-white/20 transition"
-                onClick={() => setLeftPinned((v) => !v)}
-                title={leftPinned ? '取消固定' : '固定面板'}
-              >
-                {leftPinned ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
-              </button>
             </div>
 
             <div className="flex items-center gap-3 mb-3">
               <button
-                className="p-3 rounded-full bg-white/80 text-[#4C6EF5] hover:bg-white transition"
+                className="p-3 rounded-full bg-white/90 text-[#4C6EF5] hover:bg-white transition shadow"
                 onClick={handlePlayPause}
               >
                 {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
               </button>
               <div className="flex-1">
-                <p className="text-xs text-white/70 mb-1">音量</p>
+                <p className="text-xs text-white/90 mb-1">音量</p>
                 <div className="flex items-center gap-2">
-                  <VolumeX className="w-4 h-4 text-white/70" />
+                  <VolumeX className="w-4 h-4 text-white/80" />
                   <input
                     type="range"
                     min={0}
                     max={100}
                     value={volume}
                     onChange={(e) => {
-                      setVolume(Number(e.target.value));
+                      const val = Number(e.target.value);
+                      setVolume(val);
                       markActive();
+                      logDebug('volume-change', { val, active: activeAudio.src, paused: activeAudio.paused });
                     }}
                     onMouseDown={() => setIsDraggingVolume(true)}
                     onMouseUp={() => setIsDraggingVolume(false)}
@@ -405,7 +360,7 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
                     onTouchEnd={() => setIsDraggingVolume(false)}
                     className="flex-1 accent-[#845EF7]"
                   />
-                  <Volume2 className="w-4 h-4 text-white/70" />
+                  <Volume2 className="w-4 h-4 text-white/80" />
                 </div>
               </div>
             </div>
@@ -416,7 +371,7 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
                 <span>切换场景</span>
               </div>
               <button
-                className="text-xs px-3 py-1 rounded-full bg-white/15 hover:bg-white/25 transition"
+                className="text-xs px-3 py-1 rounded-full bg-white/20 hover:bg-white/30 transition"
                 onClick={() => setShowScenePicker((v) => !v)}
               >
                 {showScenePicker ? '收起' : '选择'}
@@ -428,145 +383,178 @@ export function RestRoom({ onNavigate }: RestRoomProps) {
               </div>
             )}
           </div>
-        )}
-      </div>
+        </div>
 
-      {/* Right: study room */}
-      <div
-        className="fixed bottom-6 right-6"
-        onMouseEnter={() => {
-          if (!isMobile) setRightCollapsed(false);
-          markActive();
-        }}
-        onMouseLeave={() => {
-          if (!rightPinned && !isMobile) setRightCollapsed(true);
-        }}
-      >
-        {rightCollapsed ? (
-          <button
-            className="w-14 h-14 rounded-full bg-white/80 text-[#4C6EF5] border border-white/60 shadow-lg flex items-center justify-center hover:bg-white transition-all"
-            onClick={toggleRight}
-          >
-            <Timer className="w-5 h-5" />
-          </button>
-        ) : (
-          <div className="rest-glass w-[340px] p-4 z-40">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <Users className="w-4 h-4" />
-                <span className="text-sm">自习室 · {joinedRoom || '独自模式'}</span>
+        <div className="fixed bottom-6 right-6 pointer-events-auto">
+          {rightCollapsed ? (
+            <button
+              className="w-14 h-14 rounded-full bg-white/80 text-[#4C6EF5] border border-white/60 shadow-lg flex items-center justify-center hover:bg-white transition-all"
+              onClick={() => setRightCollapsed(false)}
+            >
+              <Timer className="w-5 h-5" />
+            </button>
+          ) : (
+            <div className="rest-glass w-[340px] p-4 z-50 shadow-2xl bg-black/70 text-white">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <Users className="w-4 h-4" />
+                  <span className="text-sm">自习室 · {joinedRoom || '独自模式'}</span>
+                </div>
+                <button
+                  className="p-2 rounded-lg bg-white/10 hover:bg-white/20 transition"
+                  onClick={() => setRightPinned((v) => !v)}
+                  title={rightPinned ? '取消固定' : '固定面板'}
+                >
+                  {rightPinned ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+                </button>
               </div>
-              <button
-                className="p-2 rounded-lg bg-white/10 hover:bg-white/20 transition"
-                onClick={() => setRightPinned((v) => !v)}
-                title={rightPinned ? '取消固定' : '固定面板'}
-              >
-                {rightPinned ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
-              </button>
-            </div>
 
-            <div className="flex items-center gap-3 mb-3">
-              <input
-                className="flex-1 px-3 py-2 rounded-lg bg-white/10 border border-white/25 text-sm outline-none focus:border-white/50"
-                placeholder="输入房间号加入（可选）"
-                value={roomId}
-                onChange={(e) => {
-                  setRoomId(e.target.value);
-                  setIsTypingRoom(true);
-                  markActive();
-                }}
-                onFocus={() => setIsTypingRoom(true)}
-                onBlur={() => setIsTypingRoom(false)}
-              />
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  const id = roomId.trim();
-                  const finalId = id || '独自模式';
-                  setJoinedRoom(finalId);
-                  setMembers(id ? ['我', '同学A', '同学B'] : ['我']);
-                  markActive();
-                }}
-              >
-                {joinedRoom ? '更新' : '加入'}
-              </Button>
-            </div>
-
-            <div className="mb-3">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-xs text-white/80">专注计时器</span>
-                <span className="text-xs text-white/70">{formatTimer(timerSeconds)}</span>
-              </div>
-              <div className="flex gap-2">
-                <Button size="sm" variant="secondary" onClick={() => startTimer(25)}>
-                  25 min
-                </Button>
-                <Button size="sm" variant="secondary" onClick={() => startTimer(50)}>
-                  50 min
-                </Button>
+              <div className="flex items-center gap-3 mb-3">
+                <input
+                  className="flex-1 px-3 py-2 rounded-lg bg-white/10 border border-white/25 text-sm outline-none focus:border-white/50"
+                  placeholder="输入房间号加入（可选）"
+                  value={roomId}
+                  onChange={(e) => {
+                    setRoomId(e.target.value);
+                    setIsTypingRoom(true);
+                    markActive();
+                  }}
+                  onFocus={() => setIsTypingRoom(true)}
+                  onBlur={() => setIsTypingRoom(false)}
+                />
                 <Button
-                  size="sm"
-                  variant="ghost"
+                  variant="secondary"
                   onClick={() => {
-                    setTimerRunning((v) => !v);
+                    const id = roomId.trim();
+                    const finalId = id || '独自模式';
+                    setJoinedRoom(finalId);
+                    setMembers(id ? ['我', '同学A', '同学B'] : ['我']);
                     markActive();
                   }}
                 >
-                  {timerRunning ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                  {joinedRoom ? '更新' : '加入'}
                 </Button>
+              </div>
+
+              <div className="mb-3">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs text-white/80">专注计时器</span>
+                  <span className="text-xs text-white/70">{formatTimer(timerSeconds)}</span>
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="secondary" onClick={() => startTimer(25)}>
+                    25 min
+                  </Button>
+                  <Button size="sm" variant="secondary" onClick={() => startTimer(50)}>
+                    50 min
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setTimerRunning((v) => !v);
+                      markActive();
+                    }}
+                  >
+                    {timerRunning ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setTimerSeconds(0);
+                      setTimerRunning(false);
+                    }}
+                  >
+                    <TimerReset className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+
+              <div className="rest-card">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-white/70">成员</span>
+                  <span className="text-xs text-white/60">{members.length} 人</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {members.length ? (
+                    members.map((m) => (
+                      <div key={m} className="px-3 py-1 rounded-full bg-white/10 text-xs">
+                        {m}
+                      </div>
+                    ))
+                  ) : (
+                    <span className="text-xs text-white/60">尚未加入房间</span>
+                  )}
+                </div>
+              </div>
+
+              <div className="mt-3 flex items-center justify-between">
+                <div className="text-xs text-white/70">想要完整自习室体验？</div>
                 <Button
                   size="sm"
                   variant="ghost"
-                  onClick={() => {
-                    setTimerSeconds(0);
-                    setTimerRunning(false);
-                  }}
+                  onClick={() => onNavigate?.('study-hub')}
+                  className="gap-1 text-white hover:bg-white/15"
                 >
-                  <TimerReset className="w-4 h-4" />
+                  前往主页
+                  <ChevronRight className="w-4 h-4" />
                 </Button>
               </div>
             </div>
+          )}
+        </div>
+      </div>,
+      overlayRoot
+    );
 
-            <div className="rest-card">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs text-white/70">成员</span>
-                <span className="text-xs text-white/60">{members.length} 人</span>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {members.length ? (
-                  members.map((m) => (
-                    <div key={m} className="px-3 py-1 rounded-full bg-white/10 text-xs">
-                      {m}
-                    </div>
-                  ))
-                ) : (
-                  <span className="text-xs text-white/60">尚未加入房间</span>
-                )}
-              </div>
-            </div>
+  return (
+    <div
+      className="relative overflow-hidden text-white"
+      style={{ minHeight: 'calc(100vh - 88px)', zIndex: 0 }}
+      onMouseMove={markActive}
+      onTouchStart={markActive}
+    >
+      <div
+        className="absolute inset-0 rest-kenburns"
+        style={{
+          pointerEvents: 'none',
+          backgroundImage: `url(${currentBg})`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backgroundRepeat: 'no-repeat'
+        }}
+      />
+      {nextBg && (
+        <div
+          className={`absolute inset-0 rest-kenburns transition-opacity duration-700 ${bgFading ? 'opacity-100' : 'opacity-0'}`}
+          style={{
+            pointerEvents: 'none',
+            backgroundImage: `url(${nextBg})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            backgroundRepeat: 'no-repeat'
+          }}
+        />
+      )}
+      <div className="absolute inset-0 bg-gradient-to-t from-black/35 via-black/10 to-black/20 mix-blend-normal rest-glow pointer-events-none" />
 
-            <div className="mt-3 flex items-center justify-between">
-              <div className="text-xs text-white/70">想要完整自习室体验？</div>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => onNavigate?.('study-hub')}
-                className="gap-1 text-white hover:bg-white/15"
-              >
-                前往主页
-                <ChevronRight className="w-4 h-4" />
-              </Button>
-            </div>
-          </div>
-        )}
+      <div className="relative z-10 min-h-screen flex items-center justify-center pointer-events-none">
+        <div className="text-center px-6">
+          <p className="uppercase tracking-[0.4em] text-sm text-white/70 mb-3">Rest · Focus</p>
+          <h1 className="text-4xl md:text-5xl font-semibold drop-shadow-lg mb-3">冥想自习室</h1>
+          <p className="text-base text-white/80">在静谧的呼吸中保持专注，背景音乐与场景随心切换</p>
+          {playHint && <p className="text-xs text-white/70 mt-2">{playHint}</p>}
+        </div>
       </div>
 
-      {/* Floating hints for mobile toggles */}
       {isMobile && (
-        <div className="fixed top-20 right-4 z-20 text-xs text-white/70">
-          点击角落圆形按钮展开控制
+        <div className="fixed top-20 right-4 z-20 text-xs text-white/70 pointer-events-none">
+          控件固定在底部与左下角
         </div>
       )}
+
+      {controls}
     </div>
   );
 }
