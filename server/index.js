@@ -6,11 +6,11 @@ const { Server } = require('socket.io');
 const { LowSync, JSONFileSync } = require('lowdb');
 const path = require('path');
 const { OpenAI } = require('openai');
+const crypto = require('crypto');
 const PptxGenJS = require('pptxgenjs');
 const dayjs = require('dayjs');
 const { getMockCourseContent } = require('./mocks/courseContent');
 const { QUESTION_BANK } = require('./mocks/questionBank');
-const { randomUUID } = require('crypto');
 const multer = require('multer');
 
 const app = express();
@@ -1580,7 +1580,7 @@ app.post('/api/submissions/parse', uploadParser.single('file'), async (req, res)
         rawText: textBody.trim(),
         answers: {},
         submission: {
-          id: randomUUID(),
+          id: crypto.randomUUID(),
           rawText: textBody.trim(),
           answers: {},
           source: 'paste',
@@ -1602,7 +1602,7 @@ app.post('/api/submissions/parse', uploadParser.single('file'), async (req, res)
       rawText,
       answers: {},
       submission: {
-        id: randomUUID(),
+        id: crypto.randomUUID(),
         rawText,
         answers: {},
         source: 'upload',
