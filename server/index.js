@@ -1,4 +1,10 @@
 require('dotenv').config();
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err);
+});
+process.on('unhandledRejection', (err) => {
+  console.error('[unhandledRejection]', err);
+});
 const express = require('express');
 const http = require('http');
 const https = require('https');
@@ -74,6 +80,10 @@ const io = new Server(server, {
 
 app.use(cors());
 app.use(express.json());
+
+app.get('/api/health', (req, res) => {
+  res.json({ ok: true, env: process.env.NODE_ENV || 'development' });
+});
 
 // Lowdb setup
 const dbFile = path.join(__dirname, 'db.json');
@@ -1622,7 +1632,8 @@ app.post('/api/reports/parse', uploadParser.single('file'), async (req, res) => 
 const { registerPptToVideoRoutes } = require('./pptToVideo');
 registerPptToVideoRoutes(app);
 
-const PORT = process.env.PORT || 3001;
+const PORT = Number(process.env.PORT || 3001);
 server.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`Server running on http://localhost:${PORT} (env=${process.env.NODE_ENV || 'development'})`);
+  console.log('Routes: /api/health, /api/ppt-to-video/create, /api/ppt-to-video/status');
 });
